@@ -1054,9 +1054,9 @@ void StoreIPDataInCDF(struct IPData IncData[])
 	FILE *cdf;
 	struct Statistics *Stats;
 	char IPBuffer[50];
-	char logfile[] = "log.1.0.cdf";
+	char logfile[] = "/tmp/Bandwidthd_html/htdocs/log.1.0.cdf";
 	
-	logfile[4] = config.tag;	
+	logfile[32] = config.tag;	
 
    	cdf = fopen(logfile, "at");
 
@@ -1170,8 +1170,8 @@ void CommitData(time_t timestamp)
 	static int MayGraph = TRUE;
     unsigned int counter;
 	struct stat StatBuf;
-	char logname1[] = "log.1.5.cdf";
-	char logname2[] = "log.1.4.cdf";
+	char logname1[] = "/tmp/Bandwidthd_html/htdocs/log.1.5.cdf";
+	char logname2[] = "/tmp/Bandwidthd_html/htdocs/log.1.4.cdf";
 	// Set the timestamps
 	for (counter=0; counter < IpCount; counter++)
         IpTable[counter].timestamp = timestamp;
@@ -1189,29 +1189,29 @@ void CommitData(time_t timestamp)
 
 		if (RotateLogs >= config.range/RANGE1) // We set this++ on HUP
 			{
-			logname1[4] = config.tag;
-			logname2[4] = config.tag;
-			logname2[6] = '5';
+			logname1[32] = config.tag;
+			logname2[32] = config.tag;
+			logname2[34] = '5';
 
 			if (!stat(logname2, &StatBuf)) // File exists
 				unlink(logname2);
-			logname1[6] = '4';
+			logname1[34] = '4';
 			if (!stat(logname1, &StatBuf)) // File exists
 				rename(logname1, logname2);
-			logname1[6] = '3';
-			logname2[6] = '4';			
+			logname1[34] = '3';
+			logname2[34] = '4';			
 			if (!stat(logname1, &StatBuf)) // File exists
 				rename(logname1, logname2);
-            logname1[6] = '2';
-            logname2[6] = '3';			
+            logname1[34] = '2';
+            logname2[34] = '3';			
 			if (!stat(logname1, &StatBuf)) // File exists
 				rename(logname1, logname2);
-            logname1[6] = '1';
-            logname2[6] = '2';			
+            logname1[34] = '1';
+            logname2[34] = '2';			
 			if (!stat(logname1, &StatBuf)) // File exists
 				rename(logname1, logname2);
-            logname1[6] = '0';
-            logname2[6] = '1';			
+            logname1[34] = '0';
+            logname2[34] = '1';			
 			if (!stat(logname1, &StatBuf)) // File exists
 				rename(logname1, logname2); 
 			fclose(fopen(logname1, "at")); // Touch file
@@ -1355,17 +1355,17 @@ void RecoverDataFromCDF(void)
 	{
 	FILE *cdf;
 	char index[] = "012345";
-    char logname1[] = "log.1.0.cdf";
-    char logname2[] = "log.1.1.cdf";
+    char logname1[] = "/tmp/Bandwidthd_html/htdocs/log.1.0.cdf";
+    char logname2[] = "/tmp/Bandwidthd_html/htdocs/log.1.1.cdf";
 	int Counter;
 	int First = FALSE;
 
-	logname1[4] = config.tag;
-	logname2[4] = config.tag;
+	logname1[32] = config.tag;
+	logname2[32] = config.tag;
 
 	for (Counter = 5; Counter >= 0; Counter--)
 		{
-		logname1[6] = index[Counter];
+		logname1[34] = index[Counter];
 		if (RCDF_Test(logname1))
 			break;
 		}
@@ -1373,7 +1373,7 @@ void RecoverDataFromCDF(void)
 	First = TRUE;
 	for (; Counter >= 0; Counter--)
 		{
-		logname1[6] = index[Counter];
+		logname1[34] = index[Counter];
 		if ((cdf = fopen(logname1, "rt")))
 			{
 			syslog(LOG_INFO, "正在从 %s 恢复", logname1);
