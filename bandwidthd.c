@@ -573,7 +573,7 @@ int main(int argc, char **argv)
 		}	
 
     IntervalStart = time(NULL);
-
+syslog("初始化 IntervalStart 时间戳: %lu\n", (unsigned long)IntervalStart);
 	syslog(LOG_INFO, "正在检测 %s 接口", config.dev);	
 	pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);
         if (pd == NULL) 
@@ -667,6 +667,7 @@ void PacketCallback(u_char *user, const struct pcap_pkthdr *h, const u_char *p)
     if (h->ts.tv_sec > IntervalStart + config.interval)  // Then write out this intervals data and possibly kick off the grapher
         {
         GraphIntervalCount++;
+	syslog("调用 CommitData，传入时间戳: %lu\n", (unsigned long)(IntervalStart + config.interval));
         CommitData(IntervalStart+config.interval);
 		IpCount = 0;
         IntervalStart=h->ts.tv_sec;
