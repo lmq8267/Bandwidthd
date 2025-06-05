@@ -855,7 +855,7 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
     	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, red);
 	
     	    timestruct = localtime((time_t *)&MarkTime);
-	        strftime(buffer, 100, "%a, %b %d", timestruct);
+	        strftime(buffer, 100, "%Y-%m-%d", timestruct); // 修改为年-月-日
     	    gdImageString(im, gdFontSmall, x-30,  YHEIGHT-YOFFSET+10, buffer, black);        
 
 	        // Calculate Next x
@@ -889,7 +889,7 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
     	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, red);
 	
     	    timestruct = localtime((time_t *)&MarkTime);
-	        strftime(buffer, 100, "%b", timestruct);
+	        strftime(buffer, 100, "%Y-%m-%d", timestruct); // 也改成完整日期
     	    gdImageString(im, gdFontSmall, x-6,  YHEIGHT-YOFFSET+10, buffer, black);        
 
 	        // Calculate Next x
