@@ -573,7 +573,6 @@ int main(int argc, char **argv)
 		}	
 
     IntervalStart = time(NULL);
-	syslog(LOG_INFO, "初始化 IntervalStart 时间戳: %lu\n", (unsigned long)IntervalStart);
 	syslog(LOG_INFO, "正在检测 %s 接口", config.dev);	
 	pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);
         if (pd == NULL) 
@@ -667,7 +666,6 @@ void PacketCallback(u_char *user, const struct pcap_pkthdr *h, const u_char *p)
     if (h->ts.tv_sec > IntervalStart + config.interval)  // Then write out this intervals data and possibly kick off the grapher
         {
         GraphIntervalCount++;
-	syslog(LOG_INFO, "调用 CommitData，传入时间戳: %lu\n", (unsigned long)(IntervalStart + config.interval));
         CommitData(IntervalStart+config.interval);
 		IpCount = 0;
         IntervalStart=h->ts.tv_sec;
@@ -1073,7 +1071,8 @@ void StoreIPDataInCDF(struct IPData IncData[])
 		{
 		IPData = &IncData[counter];
 		HostIp2CharIp(IPData->ip, IPBuffer);
-		fprintf(cdf, "%s,%ld,", IPBuffer, IPData->timestamp);
+		syslog(LOG_INFO, "写入 IP %s 时间戳 %lld", IPBuffer, (long long)IPData->timestamp);
+		fprintf(cdf, "%s,%lld,", IPBuffer, (long long)IPData->timestamp);
 		Stats = &(IPData->Send);
 		fprintf(cdf, "%llu,%llu,%llu,%llu,%llu,%llu,%llu,", Stats->total, Stats->icmp, Stats->udp, Stats->tcp, Stats->ftp, Stats->http, Stats->p2p); 
 		Stats = &(IPData->Receive);
