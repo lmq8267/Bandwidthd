@@ -265,6 +265,7 @@ void start_http_server(int port) {
     close(STDIN_FILENO);             // 关闭标准输入
     close(STDOUT_FILENO);            // 关闭标准输出
     close(STDERR_FILENO);            // 关闭标准错误
+    signal(SIGPIPE, SIG_IGN);
 
     int server_fd;
     struct sockaddr_in6 addr6;
@@ -322,84 +323,89 @@ serve:
         exit(1);
     }
 
-    syslog(LOG_INFO, "HTTP 服务已启动，监听端口 %d", port);
-
-    int max_clients = 100;
-    int current_clients = 0;
+    syslog(LOG_ERR, "HTTP 服务已启动，监听端口 %d", port);
 
     while (1) {
-        if (current_clients >= max_clients) {
-            sleep(1);  // 等待空闲连接释放
-            continue;
-        }
-
         int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd < 0) continue;
-        current_clients++;
 
-        // 设置 5 秒超时（防止 iPhone 请求挂起）
-        struct timeval timeout = {5, 0};
+        // 设置接收超时，防止 read 阻塞导致卡住
+        struct timeval timeout = {1, 0};  // 1 秒超时
         setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
         char buffer[BUFFER_SIZE] = {0};
-        ssize_t bytes_read = read(client_fd, buffer, BUFFER_SIZE - 1);
-        if (bytes_read <= 0) {
-            shutdown(client_fd, SHUT_RDWR);
-            close(client_fd);
-            current_clients--;
-            continue;
+        ssize_t total_read = 0;
+
+        // 循环读取，直到读满或者遇到 HTTP 请求头结束符 \r\n\r\n
+        while (total_read < BUFFER_SIZE - 1) {
+            ssize_t n = read(client_fd, buffer + total_read, BUFFER_SIZE - 1 - total_read);
+            if (n <= 0) break;  // 连接关闭或超时
+            total_read += n;
+            buffer[total_read] = '\0';
+            if (strstr(buffer, "\r\n\r\n")) break;  // 请求头读完
         }
 
-        // 解析请求方法和路径
-        char method[8] = {0}, path[256] = {0};
+        // 解析 HTTP 请求第一行：方法和路径
+        char method[8], path[256];
         char *line = strtok(buffer, "\r\n");
         if (!line || sscanf(line, "%7s %255s", method, path) != 2) {
-            shutdown(client_fd, SHUT_RDWR);
             close(client_fd);
-            current_clients--;
             continue;
         }
 
-        // 清理路径参数
+        // 移除路径中的锚点 (#...) 或参数 (?...）
         char *p = strpbrk(path, "?#");
         if (p) *p = '\0';
 
-        // 判断路径
+        // 判断是否为根目录请求
         const char *req_path = (strcmp(path, "/") == 0) ? INDEX_PAGE : path + 1;
 
-        // 构建完整路径
+        // 构建文件绝对路径
         char file_path[512];
         snprintf(file_path, sizeof(file_path), "%s/%s", WEB_ROOT, req_path);
 
-        // 打开文件
+        // 打开文件并发送
         int fd = open(file_path, O_RDONLY);
         if (fd < 0) {
+            syslog(LOG_ERR, "打开文件失败: %s", strerror(errno));
             const char *not_found = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found";
             write(client_fd, not_found, strlen(not_found));
         } else {
-            const char *header = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
-            write(client_fd, header, strlen(header));
-            ssize_t n;
-            while ((n = read(fd, buffer, BUFFER_SIZE)) > 0) {
-                ssize_t sent = 0;
-                while (sent < n) {
-                    ssize_t s = write(client_fd, buffer + sent, n - sent);
-                    if (s <= 0) break;
-                    sent += s;
+            // 检查是否被写锁定
+            struct flock fl = { .l_type = F_RDLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 0 };
+            if (fcntl(fd, F_SETLK, &fl) == -1) {
+                syslog(LOG_ERR, "文件被其他进程写入中，暂不响应: %s", file_path);
+                close(fd);
+                const char *busy = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nFile is being updated";
+                write(client_fd, busy, strlen(busy));
+            } else {
+                const char *header = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
+                write(client_fd, header, strlen(header));
+                ssize_t n;
+                while ((n = read(fd, buffer, BUFFER_SIZE)) > 0) {
+                    ssize_t sent = 0;
+                    while (sent < n) {
+                        ssize_t written = write(client_fd, buffer + sent, n - sent);
+                        if (written <= 0) {
+                            //syslog(LOG_ERR, "写入客户端失败: %s", strerror(errno));
+                            break;
+                        }
+                        sent += written;
+                    }
                 }
+                if (n < 0) {
+                    syslog(LOG_ERR, "读取文件失败: %s", strerror(errno));
+                }
+                close(fd);
             }
-            close(fd);
         }
 
-        // 安全关闭连接
-        shutdown(client_fd, SHUT_RDWR);
         close(client_fd);
-        current_clients--;
     }
 
     close(server_fd);
 }
+
 
 #define DEFAULT_CONFIG_DIR "/etc/storage"
 int main(int argc, char **argv)
