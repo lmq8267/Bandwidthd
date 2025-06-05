@@ -126,7 +126,7 @@ void bd_CollectingData(char *filename)
 		}
 	}
 
-int WriteOutWebpages(long int timestamp)
+int WriteOutWebpages(time_t timestamp)
 {
 	struct IPDataStore *DataStore = IPDataStore;
 	struct SummaryData **SummaryData;
@@ -749,7 +749,7 @@ inline void Credit(struct Statistics *Stats, const struct ip *ip)
     }
 
 // TODO:  Throw away old data!
-void DropOldData(long int timestamp) 	// Go through the ram datastore and dump old data
+void DropOldData(time_t timestamp) 	// Go through the ram datastore and dump old data
 	{
 	struct IPDataStore *DataStore;
 	struct IPDataStore *PrevDataStore;	
@@ -1072,7 +1072,7 @@ void StoreIPDataInCDF(struct IPData IncData[])
 		{
 		IPData = &IncData[counter];
 		HostIp2CharIp(IPData->ip, IPBuffer);
-		fprintf(cdf, "%s,%lu,", IPBuffer, IPData->timestamp);
+		fprintf(cdf, "%s,%ld,", IPBuffer, IPData->timestamp);
 		Stats = &(IPData->Send);
 		fprintf(cdf, "%llu,%llu,%llu,%llu,%llu,%llu,%llu,", Stats->total, Stats->icmp, Stats->udp, Stats->tcp, Stats->ftp, Stats->http, Stats->p2p); 
 		Stats = &(IPData->Receive);
@@ -1268,7 +1268,7 @@ int RCDF_Test(char *filename)
 		if (fseek(cdf, -2, SEEK_CUR) == -1)
 			break;
 		}
-	if(fscanf(cdf, " %15[0-9.],%lu,", ipaddrBuffer, &timestamp) != 2)
+	if(fscanf(cdf, " %15[0-9.],%ld,", ipaddrBuffer, &timestamp) != 2)
 		{
 		syslog(LOG_ERR, "%s 已损坏，跳过", filename); 
 		return FALSE;
@@ -1301,7 +1301,7 @@ void RCDF_PositionStream(FILE *cdf)
 			}
 		while (fgetc(cdf) != '\n' && !feof(cdf)); // Read to next line
 		ungetc('\n', cdf);  // Just so the fscanf mask stays identical
-        if(fscanf(cdf, " %15[0-9.],%lu,", ipaddrBuffer, &timestamp) != 2)
+        if(fscanf(cdf, " %15[0-9.],%ld,", ipaddrBuffer, &timestamp) != 2)
 			{
 			syslog(LOG_ERR, "扫描数据开始位置时发生未知错误...\n");
 			return;	
@@ -1323,7 +1323,7 @@ void RCDF_Load(FILE *cdf)
 
     for(Counter = 0; !feof(cdf) && !ferror(cdf); Counter++)
 	    {
-		if(fscanf(cdf, " %15[0-9.],%lu,", ipaddrBuffer, &timestamp) != 2) 
+		if(fscanf(cdf, " %15[0-9.],%ld,", ipaddrBuffer, &timestamp) != 2) 
 			goto End_RecoverDataFromCdf;
 
 		if (!timestamp) // First run through loop
