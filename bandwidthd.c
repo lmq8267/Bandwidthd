@@ -537,6 +537,14 @@ int main(int argc, char **argv)
 
 	if (config.graph || config.output_cdf)
 		{
+		// 简单判断目录是否存在，如果不存在就创建
+    		struct stat st;
+    		if (stat("/tmp/Bandwidthd_html/htdocs", &st) != 0) {
+        		// 尝试创建目录（及其父目录），忽略失败
+        		mkdir("/tmp", 0755);                          // 父目录
+        		mkdir("/tmp/Bandwidthd_html", 0755);          // 中间目录
+        		mkdir("/tmp/Bandwidthd_html/htdocs", 0755);   // 最终目录
+    		}
 		/* fork processes for week, month and year graphing. */
 		for (i=0; i<NR_WORKER_CHILDS; i++) 
 			{
