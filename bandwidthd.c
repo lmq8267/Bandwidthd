@@ -322,35 +322,57 @@ serve:
         exit(1);
     }
 
-    syslog(LOG_ERR, "HTTP 服务已启动，监听端口 %d", port);
+    syslog(LOG_INFO, "HTTP 服务已启动，监听端口 %d", port);
+
+    int max_clients = 100;
+    int current_clients = 0;
 
     while (1) {
-        int client_fd = accept(server_fd, NULL, NULL);
-        if (client_fd < 0) continue;
-
-        char buffer[BUFFER_SIZE] = {0};
-        read(client_fd, buffer, BUFFER_SIZE - 1);
-
-        // 解析 HTTP 请求第一行：方法和路径
-        char method[8], path[256];
-        char *line = strtok(buffer, "\r\n");
-        if (!line || sscanf(line, "%7s %255s", method, path) != 2) {
-            close(client_fd);
+        if (current_clients >= max_clients) {
+            sleep(1);  // 等待空闲连接释放
             continue;
         }
 
-        // 移除路径中的锚点 (#...) 或参数 (?...)
+        int client_fd = accept(server_fd, NULL, NULL);
+        if (client_fd < 0) continue;
+        current_clients++;
+
+        // 设置 5 秒超时（防止 iPhone 请求挂起）
+        struct timeval timeout = {5, 0};
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
+        char buffer[BUFFER_SIZE] = {0};
+        ssize_t bytes_read = read(client_fd, buffer, BUFFER_SIZE - 1);
+        if (bytes_read <= 0) {
+            shutdown(client_fd, SHUT_RDWR);
+            close(client_fd);
+            current_clients--;
+            continue;
+        }
+
+        // 解析请求方法和路径
+        char method[8] = {0}, path[256] = {0};
+        char *line = strtok(buffer, "\r\n");
+        if (!line || sscanf(line, "%7s %255s", method, path) != 2) {
+            shutdown(client_fd, SHUT_RDWR);
+            close(client_fd);
+            current_clients--;
+            continue;
+        }
+
+        // 清理路径参数
         char *p = strpbrk(path, "?#");
         if (p) *p = '\0';
 
-        // 判断是否为根目录请求
+        // 判断路径
         const char *req_path = (strcmp(path, "/") == 0) ? INDEX_PAGE : path + 1;
 
-        // 构建文件绝对路径
+        // 构建完整路径
         char file_path[512];
         snprintf(file_path, sizeof(file_path), "%s/%s", WEB_ROOT, req_path);
 
-        // 打开文件并发送
+        // 打开文件
         int fd = open(file_path, O_RDONLY);
         if (fd < 0) {
             const char *not_found = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found";
@@ -360,12 +382,20 @@ serve:
             write(client_fd, header, strlen(header));
             ssize_t n;
             while ((n = read(fd, buffer, BUFFER_SIZE)) > 0) {
-                write(client_fd, buffer, n);
+                ssize_t sent = 0;
+                while (sent < n) {
+                    ssize_t s = write(client_fd, buffer + sent, n - sent);
+                    if (s <= 0) break;
+                    sent += s;
+                }
             }
             close(fd);
         }
 
+        // 安全关闭连接
+        shutdown(client_fd, SHUT_RDWR);
         close(client_fd);
+        current_clients--;
     }
 
     close(server_fd);
@@ -1461,4 +1491,3 @@ int fork2()
     waitpid(pid, NULL, 0);
     return(1);
     }
-
