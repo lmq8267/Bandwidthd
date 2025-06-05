@@ -225,7 +225,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 		}
 	else
 		{
-		filename[14] = config.tag;
+		filename[25] = config.tag;
 		if ((file = fopen(filename, "wt")) == NULL)
 			{
 			syslog(LOG_ERR, "打开 %s 失败", filename);
