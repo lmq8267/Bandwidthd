@@ -816,8 +816,8 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
     int black, red;
     time_t sample_begin, sample_end;    
     struct tm *timestruct;
-    long int MarkTime;
-	long int MarkTimeStep;
+    time_t MarkTime;
+    time_t MarkTimeStep;
     double x;
     
     sample_begin=timestamp-config.range;
@@ -855,7 +855,7 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
     	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, red);
 	
     	    // 使用 localtime 的副本，防止修改内部静态结构体
-    	    struct tm tmp = *localtime((time_t *)&MarkTime);
+    	    struct tm tmp = *localtime(&MarkTime);
 
     	    // 使用 年-月-日 格式格式化日期（无中文）
     	    strftime(buffer, 100, "%Y-%m-%d", &tmp);
