@@ -258,7 +258,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 				config.meta_refresh);
 	fprintf(file, "<META HTTP-EQUIV=\"EXPIRES\" content=\"-1\">\n");
 	fprintf(file, "<META HTTP-EQUIV=\"PRAGMA\" content=\"no-cache\">\n");
-	fprintf(file, "</HEAD>\n<BODY vlink=blue>\n生成时间：%s 星期%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", time_buf, weekdays_cn[weekday], logo_base64);
+	fprintf(file, "</HEAD>\n<BODY vlink=blue>\n  %s 星期%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", time_buf, weekdays_cn[weekday], logo_base64);
 	fprintf(file, "由 David Hinkle 编程，受 <a href=\"http://www.derbytech.com\">DerbyTech</a> 无线网络公司委托开发<BR>");
 	fprintf(file, "<BR>\n - <a href=\"lljk.html\">今日</a> -- <a href=\"lljk2.html\">周</a> -- ");
 	fprintf(file, "<a href=\"lljk3.html\">月</a> -- <a href=\"lljk4.html\">年</a> - <BR>\n");
@@ -346,7 +346,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 					config.meta_refresh);
 		fprintf(file, "<META HTTP-EQUIV=\"EXPIRES\" content=\"-1\">\n");
 		fprintf(file, "<META HTTP-EQUIV=\"PRAGMA\" content=\"no-cache\">\n");
-		fprintf(file, "</HEAD>\n<BODY vlink=blue>\n生成时间：%s 星期%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", time_buf, weekdays_cn[weekday], logo_base64);
+		fprintf(file, "</HEAD>\n<BODY vlink=blue>\n  %s 星期%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", time_buf, weekdays_cn[weekday], logo_base64);
 		fprintf(file, "由 David Hinkle 编程，受 <a href=\"http://www.derbytech.com\">DerbyTech</a> 无线网络公司委托开发<BR>\n");
 
 		fprintf(file, "<BR>\n - <a href=\"lljk.html\">今日</a> -- <a href=\"lljk2.html\">周</a> -- ");
@@ -854,8 +854,11 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
 	        gdImageLine(im, x, 0, x, YHEIGHT-YOFFSET, red);
     	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, red);
 	
-    	    timestruct = localtime((time_t *)&MarkTime);
-	        strftime(buffer, 100, "%Y-%m-%d", timestruct); // 修改为年-月-日
+    	    // 使用 localtime 的副本，防止修改内部静态结构体
+    	    struct tm tmp = *localtime((time_t *)&MarkTime);
+
+    	    // 使用 年-月-日 格式格式化日期（无中文）
+    	    strftime(buffer, 100, "%Y-%m-%d", &tmp);
     	    gdImageString(im, gdFontSmall, x-30,  YHEIGHT-YOFFSET+10, buffer, black);        
 
 	        // Calculate Next x
@@ -888,13 +891,14 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
 	        gdImageLine(im, x, 0, x, YHEIGHT-YOFFSET, red);
     	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, red);
 	
-    	    timestruct = localtime((time_t *)&MarkTime);
-	        strftime(buffer, 100, "%Y-%m-%d", timestruct); // 也改成完整日期
+    	    // 使用本地副本，防止修改全局结构体
+    	    struct tm tmp = *localtime(&MarkTime);  // 拷贝 localtime 返回的结构体内容
+    	    strftime(buffer, 100, "%Y-%m-%d", &tmp);  // 用副本打印日期
     	    gdImageString(im, gdFontSmall, x-6,  YHEIGHT-YOFFSET+10, buffer, black);        
 
-	        // Calculate Next x
-            timestruct->tm_mon++;
-            MarkTime = mktime(timestruct);
+	     	// 修改副本的月份
+    		tmp.tm_mon++;
+    		MarkTime = mktime(&tmp);  // 转成新的时间戳
         	x = (MarkTime-sample_begin)*((XWIDTH-XOFFSET)/config.range) + XOFFSET;
 	        }				
 		}
