@@ -1071,7 +1071,6 @@ void StoreIPDataInCDF(struct IPData IncData[])
 		{
 		IPData = &IncData[counter];
 		HostIp2CharIp(IPData->ip, IPBuffer);
-		syslog(LOG_INFO, "写入 IP %s 时间戳 %lld", IPBuffer, (long long)IPData->timestamp);
 		fprintf(cdf, "%s,%lld,", IPBuffer, (long long)IPData->timestamp);
 		Stats = &(IPData->Send);
 		fprintf(cdf, "%llu,%llu,%llu,%llu,%llu,%llu,%llu,", Stats->total, Stats->icmp, Stats->udp, Stats->tcp, Stats->ftp, Stats->http, Stats->p2p); 
@@ -1268,7 +1267,7 @@ int RCDF_Test(char *filename)
 		if (fseek(cdf, -2, SEEK_CUR) == -1)
 			break;
 		}
-	if(fscanf(cdf, " %15[0-9.],%ld,", ipaddrBuffer, &timestamp) != 2)
+	if (fscanf(cdf, " %15[0-9.],%lld,", ipaddrBuffer, (long long *)&timestamp) != 2)
 		{
 		syslog(LOG_ERR, "%s 已损坏，跳过", filename); 
 		return FALSE;
@@ -1301,7 +1300,7 @@ void RCDF_PositionStream(FILE *cdf)
 			}
 		while (fgetc(cdf) != '\n' && !feof(cdf)); // Read to next line
 		ungetc('\n', cdf);  // Just so the fscanf mask stays identical
-        if(fscanf(cdf, " %15[0-9.],%ld,", ipaddrBuffer, &timestamp) != 2)
+        if (fscanf(cdf, " %15[0-9.],%lld,", ipaddrBuffer, (long long *)&timestamp) != 2)
 			{
 			syslog(LOG_ERR, "扫描数据开始位置时发生未知错误...\n");
 			return;	
@@ -1323,7 +1322,7 @@ void RCDF_Load(FILE *cdf)
 
     for(Counter = 0; !feof(cdf) && !ferror(cdf); Counter++)
 	    {
-		if(fscanf(cdf, " %15[0-9.],%ld,", ipaddrBuffer, &timestamp) != 2) 
+		if (fscanf(cdf, " %15[0-9.],%lld,", ipaddrBuffer, (long long *)&timestamp) != 2)
 			goto End_RecoverDataFromCdf;
 
 		if (!timestamp) // First run through loop
