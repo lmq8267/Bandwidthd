@@ -241,7 +241,14 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 		case '4': PeriodDesc = "年"; break;
 		default: PeriodDesc = ""; break;
 		}
-	
+	time_t now = WriteTime;                                 // 当前时间戳
+	struct tm *tm_info = localtime(&now);                   // 转换为本地时间结构
+	char time_buf[128];                                     // 用于格式化后的时间字符串
+	strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);  // 格式化时间
+
+	const char *weekdays_cn[] = {"日", "一", "二", "三", "四", "五", "六"};  // 中文星期
+	int weekday = tm_info->tm_wday;                         // 获取星期几
+		
 	fprintf(file, "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">\n");
 	fprintf(file, "<HTML>\n<HEAD>\n<TITLE>Bandwidthd</TITLE>\n");
 	fprintf(file, "<META HTTP-EQUIV=\"CONTENT-TYPE\" CONTENT=\"text/html; charset=UTF-8\">\n");
@@ -251,7 +258,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 				config.meta_refresh);
 	fprintf(file, "<META HTTP-EQUIV=\"EXPIRES\" content=\"-1\">\n");
 	fprintf(file, "<META HTTP-EQUIV=\"PRAGMA\" content=\"no-cache\">\n");
-	fprintf(file, "</HEAD>\n<BODY vlink=blue>\n%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", ctime(&WriteTime), logo_base64);
+	fprintf(file, "</HEAD>\n<BODY vlink=blue>\n生成时间：%s 星期%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", time_buf, weekdays_cn[weekday], logo_base64);
 	fprintf(file, "由 David Hinkle 编程，受 <a href=\"http://www.derbytech.com\">DerbyTech</a> 无线网络公司委托开发<BR>");
 	fprintf(file, "<BR>\n - <a href=\"lljk.html\">今日</a> -- <a href=\"lljk2.html\">周</a> -- ");
 	fprintf(file, "<a href=\"lljk3.html\">月</a> -- <a href=\"lljk4.html\">年</a> - <BR>\n");
@@ -339,8 +346,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 					config.meta_refresh);
 		fprintf(file, "<META HTTP-EQUIV=\"EXPIRES\" content=\"-1\">\n");
 		fprintf(file, "<META HTTP-EQUIV=\"PRAGMA\" content=\"no-cache\">\n");
-		fprintf(file, "</HEAD>\n<BODY vlink=blue>\n%s<br>\n<CENTER><a name=\"Top\"></a>", ctime(&WriteTime));
-		fprintf(file, "<img src=\"%s\" ALT=\"Logo\"><BR>", logo_base64);
+		fprintf(file, "</HEAD>\n<BODY vlink=blue>\n生成时间：%s 星期%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", time_buf, weekdays_cn[weekday], logo_base64);
 		fprintf(file, "由 David Hinkle 编程，受 <a href=\"http://www.derbytech.com\">DerbyTech</a> 无线网络公司委托开发<BR>\n");
 
 		fprintf(file, "<BR>\n - <a href=\"lljk.html\">今日</a> -- <a href=\"lljk2.html\">周</a> -- ");
