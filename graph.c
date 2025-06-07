@@ -478,7 +478,7 @@ void GraphIp(struct IPDataStore *DataStore, struct SummaryData *SummaryData, tim
 	// TODO: First determine if graph will be printed before creating image and drawing backround, etc
 
 	if (DataStore->ip == 0)
-		strcpy(CharIp, "Total");
+		strcpy(CharIp, "全网总计");
 	else
 		HostIp2CharIp(DataStore->ip, CharIp);
 
