@@ -112,8 +112,27 @@ void bd_CollectingData(char *filename)
 		fprintf(index, "<META HTTP-EQUIV=\"EXPIRES\" content=\"-1\">\n");
 		fprintf(index, "<META HTTP-EQUIV=\"PRAGMA\" content=\"no-cache\">\n");
 		fprintf(index, "</HEAD>\n<BODY><center><img src=\"%s\" ALT=\"Logo\"><BR>\n", logo_base64);
-		fprintf(index, "<BR>\n - <a href=\"lljk.html\">今日</a> -- <a href=\"lljk2.html\">周</a> -- ");
-		fprintf(index, "<a href=\"lljk3.html\">月</a> -- <a href=\"lljk4.html\">年</a><BR>\n");
+		fprintf(index, "<script>\n");
+		fprintf(index, "document.addEventListener('DOMContentLoaded',function(){\n");
+		fprintf(index, "document.querySelectorAll('a').forEach(function(a){\n");
+		fprintf(index, "a.style.transition='all 0.3s ease';\n");
+		fprintf(index, "a.addEventListener('mouseenter',function(){\n");
+		fprintf(index, "a.style.transform='scale(1.05)';");
+		fprintf(index, "a.style.boxShadow='0 4px 10px rgba(0,0,0,0.2)';");
+		fprintf(index, "a.style.filter='brightness(90%)';");
+		fprintf(index, "});");
+		fprintf(index, "a.addEventListener('mouseleave',function(){");
+		fprintf(index, "a.style.transform='scale(1)';");
+		fprintf(index, "a.style.boxShadow='0 2px 5px rgba(0,0,0,0.15)';");
+		fprintf(index, "a.style.filter='brightness(100%)';");
+		fprintf(index, "});");
+		fprintf(index, "});");
+		fprintf(index, "});");
+		fprintf(index, "</script>\n");
+		fprintf(index, "<BR>\n <a href=\"lljk.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#007BFF;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">日流量</a> \n ");
+		fprintf(index, " <a href=\"lljk2.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#28A745;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">周流量</a> \n ");
+		fprintf(index, " <a href=\"lljk3.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#FFC107;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">月流量</a> \n ");
+		fprintf(index, " <a href=\"lljk4.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#DC3545;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">年流量</a><BR>\n");
 		fprintf(index, "<br><div align=\"center\">bandwidthd 没有要绘制的图表。您应该等待一段时间后就能看到流量统计图表。如果没有，请查看 README 中的 \"已知 bug 和故障排除\" 部分。</div>");
 		
 		fprintf(index, "</BODY></HTML>\n");
@@ -367,14 +386,14 @@ serve:
         // 打开文件并发送
         int fd = open(file_path, O_RDONLY);
         if (fd < 0) {
-            syslog(LOG_ERR, "打开文件失败: %s", strerror(errno));
+            syslog(LOG_ERR, "请求页面文件失败: %s", strerror(errno));
             const char *not_found = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found";
             write(client_fd, not_found, strlen(not_found));
         } else {
             // 检查是否被写锁定
             struct flock fl = { .l_type = F_RDLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 0 };
             if (fcntl(fd, F_SETLK, &fl) == -1) {
-                syslog(LOG_ERR, "文件被其他进程写入中，暂不响应: %s", file_path);
+                syslog(LOG_ERR, "页面文件正在写入中，暂不响应: %s", file_path);
                 close(fd);
                 const char *busy = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nFile is being updated";
                 write(client_fd, busy, strlen(busy));
@@ -394,7 +413,7 @@ serve:
                     }
                 }
                 if (n < 0) {
-                    syslog(LOG_ERR, "读取文件失败: %s", strerror(errno));
+                    syslog(LOG_ERR, "读取页面文件失败: %s", strerror(errno));
                 }
                 close(fd);
             }
@@ -1267,9 +1286,26 @@ void CommitData(time_t timestamp)
 		StoreIPDataInRam(IpTable);
 
 		// Reap a couple zombies
-		if (waitpid(-1, NULL, WNOHANG))  // A child was reaped
-			MayGraph = TRUE;
-
+		//if (waitpid(-1, NULL, WNOHANG))  // A child was reaped
+			//MayGraph = TRUE;
+		// 尝试清理一个僵尸进程（非阻塞方式）
+    		pid_t reaped_pid = waitpid(-1, NULL, WNOHANG); // 尝试获取任意子进程的退出状态（非阻塞）
+    		if (reaped_pid > 0)
+    		{
+        		// 成功清理了一个子进程，记录其 PID
+        		//syslog(LOG_INFO, "成功清理僵尸进程，PID = %d", reaped_pid);
+        		MayGraph = TRUE; // 允许生成图形
+    		}
+    		else if (reaped_pid == -1)
+   		 {
+        		// 清理失败，打印错误和可能的原因
+        		syslog(LOG_ERR, "waitpid 调用失败，errno = %d (%s)", errno, strerror(errno));
+    		}
+    		else
+    		{
+        		// 没有子进程需要清理
+        		//syslog(LOG_ERR, "没有僵尸进程需要清理");
+    		}
 		if (GraphIntervalCount%config.skip_intervals == 0 && MayGraph)
 			{
 			MayGraph = FALSE;
