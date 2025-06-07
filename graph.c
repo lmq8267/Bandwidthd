@@ -147,7 +147,7 @@ void PrintTableLine(FILE *stream, struct SummaryData *Data, int Counter)
 
 	// First convert the info to nice, human readable stuff
 	if (Data->IP == 0)
-		strcpy(Buffer1, "Total");
+		strcpy(Buffer1, "全网总计");
 	else
 		HostIp2CharIp(Data->IP, Buffer1);
 
@@ -285,10 +285,10 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 	fprintf(file, " <a href=\"lljk4.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#DC3545;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">年流量</a><BR>\n");
 
 	fprintf(file, "<BR>\n选择一个子网地址：<BR>\n");	
-	//if (config.tag == '1')
-		//fprintf(file, "- <a href=\"lljk.html\">排名前20</a> -");
-	//else
-		//fprintf(file, "- <a href=\"lljk%c.html\">排名前20</a> -", config.tag);
+	if (config.tag == '1')
+		fprintf(file, "- <a href=\"lljk.html\">排名前20</a> -");
+	else
+		fprintf(file, "- <a href=\"lljk%c.html\">排名前20</a> -", config.tag);
 
 	for (Counter = 0; Counter < SubnetCount; Counter++)            
 		{
@@ -315,7 +315,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 			{
 			if (SummaryData[Counter]->IP == 0)
 				{
-				strcpy(Buffer1, "Total");	
+				strcpy(Buffer1, "全网总计");	
 				strcpy(HostName, "流量概览");
 				}
 			else
@@ -330,7 +330,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 	    			"<a href=\"#top\" "
     				"style=\"display:inline-block; background:#007bff; color:white; padding:5px 10px; text-decoration:none; border-radius:5px;\">返回顶部</a>\n"
     				"</h5>\n"
-    				"<h1 style=\"margin-top:0;\">全网总计 - %s</h1>\n"
+    				"<h1 style=\"margin-top:0;\">%s - %s</h1>\n"
     				"<strong>上传流量:</strong><br>\n"
     				"<img src=\"%s-%c-S.png\" alt=\"上传流量数据图 %s\"><br>\n"
     				"<img src=\"%s\" alt=\"图例\"><br>\n"
@@ -339,7 +339,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
     				"<img src=\"%s\" alt=\"图例\">\n"
     				"</div>\n",
     				Buffer1, config.tag,              // 锚点
-    				HostName,                // 标题中的 IP 和主机名
+    				Buffer1, HostName,                // 标题中的 IP 和主机名
     				Buffer1, config.tag, Buffer1,     // 发送图像路径和 ALT
     				legend_base64,                    // 图例图片
     				Buffer1, config.tag, Buffer1,     // 接收图像路径和 ALT
@@ -395,10 +395,10 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 		fprintf(file, " <a href=\"lljk4.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#DC3545;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">年流量</a><BR>\n");
 
 		fprintf(file, "<BR>\n选择一个子网地址：<BR>\n");
-		//if (config.tag == '1')
-			//fprintf(file, "- <a href=\"lljk.html\">Top20</a> -");
-		//else
-			//fprintf(file, "- <a href=\"lljk%c.html\">Top20</a> -", config.tag);
+		if (config.tag == '1')
+			fprintf(file, "- <a href=\"lljk.html\">排名前20</a> -");
+		else
+			fprintf(file, "- <a href=\"lljk%c.html\">排名前20</a> -", config.tag);
 
 		for (Counter = 0; Counter < SubnetCount; Counter++)
 			{
@@ -438,7 +438,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 	    					"<a href=\"#top\" "
     						"style=\"display:inline-block; background:#007bff; color:white; padding:5px 10px; text-decoration:none; border-radius:5px;\">返回顶部</a>\n"
     						"</h5>\n"
-    						"<h1 style=\"margin-top:0;\">全网总计 - %s</h1>\n"
+    						"<h1 style=\"margin-top:0;\">%s - %s</h1>\n"
     						"<strong>上传流量:</strong><br>\n"
     						"<img src=\"%s-%c-S.png\" alt=\"上传流量数据图 %s\"><br>\n"
     						"<img src=\"%s\" alt=\"图例\"><br>\n"
@@ -447,7 +447,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
     						"<img src=\"%s\" alt=\"图例\">\n"
     						"</div>\n",
     						Buffer1, config.tag,              // 锚点
-    						 HostName,                // 标题中的 IP 和主机名
+    						Buffer1, HostName,                // 标题中的 IP 和主机名
     						Buffer1, config.tag, Buffer1,     // 发送图像路径和 ALT
     						legend_base64,                    // 图例图片
     						Buffer1, config.tag, Buffer1,     // 接收图像路径和 ALT
