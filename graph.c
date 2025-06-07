@@ -147,7 +147,7 @@ void PrintTableLine(FILE *stream, struct SummaryData *Data, int Counter)
 
 	// First convert the info to nice, human readable stuff
 	if (Data->IP == 0)
-		strcpy(Buffer1, "全网总计");
+		strcpy(Buffer1, "Total");
 	else
 		HostIp2CharIp(Data->IP, Buffer1);
 
@@ -315,8 +315,8 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 			{
 			if (SummaryData[Counter]->IP == 0)
 				{
-				strcpy(Buffer1, "全网总计");	
-				strcpy(HostName, "流量概览");
+				strcpy(Buffer1, "Total");	
+				strcpy(HostName, "全网总计");
 				}
 			else
 				{	
@@ -478,7 +478,7 @@ void GraphIp(struct IPDataStore *DataStore, struct SummaryData *SummaryData, tim
 	// TODO: First determine if graph will be printed before creating image and drawing backround, etc
 
 	if (DataStore->ip == 0)
-		strcpy(CharIp, "全网总计");
+		strcpy(CharIp, "Total");
 	else
 		HostIp2CharIp(DataStore->ip, CharIp);
 
