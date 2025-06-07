@@ -235,10 +235,10 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 
 	switch (config.tag)
 		{
-		case '1': PeriodDesc = "今日"; break;
-		case '2': PeriodDesc = "周"; break;
-		case '3': PeriodDesc = "月"; break;
-		case '4': PeriodDesc = "年"; break;
+		case '1': PeriodDesc = "日流量"; break;
+		case '2': PeriodDesc = "周流量"; break;
+		case '3': PeriodDesc = "月流量"; break;
+		case '4': PeriodDesc = "年流量"; break;
 		default: PeriodDesc = ""; break;
 		}
 	time_t now = WriteTime;                                 // 当前时间戳
@@ -258,16 +258,37 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 				config.meta_refresh);
 	fprintf(file, "<META HTTP-EQUIV=\"EXPIRES\" content=\"-1\">\n");
 	fprintf(file, "<META HTTP-EQUIV=\"PRAGMA\" content=\"no-cache\">\n");
-	fprintf(file, "</HEAD>\n<BODY vlink=blue>\n  %s 星期%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", time_buf, weekdays_cn[weekday], logo_base64);
-	fprintf(file, "由 David Hinkle 编程，受 <a href=\"http://www.derbytech.com\">DerbyTech</a> 无线网络公司委托开发<BR>");
-	fprintf(file, "<BR>\n - <a href=\"lljk.html\">今日</a> -- <a href=\"lljk2.html\">周</a> -- ");
-	fprintf(file, "<a href=\"lljk3.html\">月</a> -- <a href=\"lljk4.html\">年</a> - <BR>\n");
+	fprintf(file, "</HEAD>\n<BODY vlink=blue>\n");
+	fprintf(file, "<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", logo_base64);
+	//fprintf(file, "由 David Hinkle 编程，受 <a href=\"http://www.derbytech.com\">DerbyTech</a> 无线网络公司委托开发<BR>");
+	fprintf(file, "<script>\n");
+	fprintf(file, "document.addEventListener('DOMContentLoaded',function(){\n");
+	fprintf(file, "document.querySelectorAll('a').forEach(function(a){\n");
+	fprintf(file, "a.style.transition='all 0.3s ease';\n");
+	fprintf(file, "a.addEventListener('mouseenter',function(){\n");
+	fprintf(file, "a.style.transform='scale(1.05)';");
+	fprintf(file, "a.style.boxShadow='0 4px 10px rgba(0,0,0,0.2)';");
+	fprintf(file, "a.style.filter='brightness(90%)';");
+	fprintf(file, "});");
+	fprintf(file, "a.addEventListener('mouseleave',function(){");
+	fprintf(file, "a.style.transform='scale(1)';");
+	fprintf(file, "a.style.boxShadow='0 2px 5px rgba(0,0,0,0.15)';");
+	fprintf(file, "a.style.filter='brightness(100%)';");
+	fprintf(file, "});");
+	fprintf(file, "});");
+	fprintf(file, "});");
+	fprintf(file, "</script>\n");
+	fprintf(file, "更新时间： %s 星期%s<br>\n", time_buf, weekdays_cn[weekday]);
+	fprintf(file, "<BR>\n <a href=\"lljk.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#007BFF;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">日流量</a> \n ");
+	fprintf(file, " <a href=\"lljk2.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#28A745;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">周流量</a> \n ");
+	fprintf(file, " <a href=\"lljk3.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#FFC107;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">月流量</a> \n ");
+	fprintf(file, " <a href=\"lljk4.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#DC3545;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">年流量</a><BR>\n");
 
-	fprintf(file, "<BR>\n子网列表：<BR>\n");	
-	if (config.tag == '1')
-		fprintf(file, "- <a href=\"lljk.html\">Top20</a> -");
-	else
-		fprintf(file, "- <a href=\"lljk%c.html\">Top20</a> -", config.tag);
+	fprintf(file, "<BR>\n选择一个子网地址：<BR>\n");	
+	//if (config.tag == '1')
+		//fprintf(file, "- <a href=\"lljk.html\">排名前20</a> -");
+	//else
+		//fprintf(file, "- <a href=\"lljk%c.html\">排名前20</a> -", config.tag);
 
 	for (Counter = 0; Counter < SubnetCount; Counter++)            
 		{
@@ -277,12 +298,12 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 
 	/////  TOP 20
 
-	fprintf(file, "<H1>Top 20 按流量分类的IP - %s</H1></center>", PeriodDesc);
+	fprintf(file, "<H1>排名前20的IP地址流量统计表 - %s</H1></center>", PeriodDesc);
 	fprintf(file, "<center>\n<table width=\"100%%\" border=1 cellspacing=0>\n");
 
     // PASS 1:  Write out the table
 
-	fprintf(file, "<TR bgcolor=lightblue><TD>IP 和主机名<TD align=center>总计<TD align=center>发送总量<TD align=center>接收总量<TD align=center>FTP<TD align=center>HTTP<TD align=center>SMTP<TD align=center>TCP<TD align=center>UDP<TD align=center>ICMP\n");
+	fprintf(file, "<TR bgcolor=lightblue><TD>IP地址<TD align=center>总计<TD align=center>上传总量<TD align=center>下载总量<TD align=center>FTP流量<TD align=center>HTTP流量<TD align=center>SMTP流量<TD align=center>TCP流量<TD align=center>UDP流量<TD align=center>ICMP流量\n");
 	for (Counter=0; Counter < 21 && Counter < NumIps; Counter++)
 		PrintTableLine(file, SummaryData[Counter], Counter);
 
@@ -295,7 +316,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 			if (SummaryData[Counter]->IP == 0)
 				{
 				strcpy(Buffer1, "Total");	
-				strcpy(HostName, "所有子网的总计");
+				strcpy(HostName, "流量概览");
 				}
 			else
 				{	
@@ -309,16 +330,16 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 	    			"<a href=\"#top\" "
     				"style=\"display:inline-block; background:#007bff; color:white; padding:5px 10px; text-decoration:none; border-radius:5px;\">返回顶部</a>\n"
     				"</h5>\n"
-    				"<h1 style=\"margin-top:0;\">%s - %s</h1>\n"
-    				"<strong>发送流量图:</strong><br>\n"
-    				"<img src=\"%s-%c-S.png\" alt=\"发送流量数据 %s\"><br>\n"
+    				"<h1 style=\"margin-top:0;\">全网总计 - %s</h1>\n"
+    				"<strong>上传流量:</strong><br>\n"
+    				"<img src=\"%s-%c-S.png\" alt=\"上传流量数据图 %s\"><br>\n"
     				"<img src=\"%s\" alt=\"图例\"><br>\n"
-    				"<strong>接收流量图:</strong><br>\n"
-    				"<img src=\"%s-%c-R.png\" alt=\"接收流量数据 %s\"><br>\n"
+    				"<strong>下载流量:</strong><br>\n"
+    				"<img src=\"%s-%c-R.png\" alt=\"下载流量数据图 %s\"><br>\n"
     				"<img src=\"%s\" alt=\"图例\">\n"
     				"</div>\n",
     				Buffer1, config.tag,              // 锚点
-    				Buffer1, HostName,                // 标题中的 IP 和主机名
+    				HostName,                // 标题中的 IP 和主机名
     				Buffer1, config.tag, Buffer1,     // 发送图像路径和 ALT
     				legend_base64,                    // 图例图片
     				Buffer1, config.tag, Buffer1,     // 接收图像路径和 ALT
@@ -339,24 +360,45 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 		sprintf(Buffer2, "/tmp/Bandwidthd_html/%c-%s.html", config.tag, Buffer1);
 		file = fopen(Buffer2, "wt");
 		fprintf(file, "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">\n");
-		fprintf(file, "<HTML>\n<HEAD><TITLE>Bandwidthd - Subnet %s</TITLE>\n", Buffer1);
+		fprintf(file, "<HTML>\n<HEAD><TITLE>Bandwidthd - 子网 %s</TITLE>\n", Buffer1);
 		fprintf(file, "<META HTTP-EQUIV=\"CONTENT-TYPE\" CONTENT=\"text/html; charset=UTF-8\">\n");
 		if (config.meta_refresh)
 			fprintf(file, "<META HTTP-EQUIV=\"REFRESH\" content=\"%u\">\n",
 					config.meta_refresh);
 		fprintf(file, "<META HTTP-EQUIV=\"EXPIRES\" content=\"-1\">\n");
 		fprintf(file, "<META HTTP-EQUIV=\"PRAGMA\" content=\"no-cache\">\n");
-		fprintf(file, "</HEAD>\n<BODY vlink=blue>\n  %s 星期%s<br>\n<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", time_buf, weekdays_cn[weekday], logo_base64);
-		fprintf(file, "由 David Hinkle 编程，受 <a href=\"http://www.derbytech.com\">DerbyTech</a> 无线网络公司委托开发<BR>\n");
+		fprintf(file, "</HEAD>\n<BODY vlink=blue>\n");
+		fprintf(file, "<center><img src=\"%s\" ALT=\"Logo\"><BR>\n", logo_base64);
+		//fprintf(file, "由 David Hinkle 编程，受 <a href=\"http://www.derbytech.com\">DerbyTech</a> 无线网络公司委托开发<BR>\n");
 
-		fprintf(file, "<BR>\n - <a href=\"lljk.html\">今日</a> -- <a href=\"lljk2.html\">周</a> -- ");
-		fprintf(file, "<a href=\"lljk3.html\">月</a> -- <a href=\"lljk4.html\">年</a> - <BR>\n");
+		fprintf(file, "<script>\n");
+		fprintf(file, "document.addEventListener('DOMContentLoaded',function(){\n");
+		fprintf(file, "document.querySelectorAll('a').forEach(function(a){\n");
+		fprintf(file, "a.style.transition='all 0.3s ease';\n");
+		fprintf(file, "a.addEventListener('mouseenter',function(){\n");
+		fprintf(file, "a.style.transform='scale(1.05)';");
+		fprintf(file, "a.style.boxShadow='0 4px 10px rgba(0,0,0,0.2)';");
+		fprintf(file, "a.style.filter='brightness(90%)';");
+		fprintf(file, "});");
+		fprintf(file, "a.addEventListener('mouseleave',function(){");
+		fprintf(file, "a.style.transform='scale(1)';");
+		fprintf(file, "a.style.boxShadow='0 2px 5px rgba(0,0,0,0.15)';");
+		fprintf(file, "a.style.filter='brightness(100%)';");
+		fprintf(file, "});");
+		fprintf(file, "});");
+		fprintf(file, "});");
+		fprintf(file, "</script>\n");
+		fprintf(file, "更新时间： %s 星期%s<br>\n", time_buf, weekdays_cn[weekday]);
+		fprintf(file, "<BR>\n <a href=\"lljk.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#007BFF;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">日流量</a> \n ");
+		fprintf(file, " <a href=\"lljk2.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#28A745;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">周流量</a> \n ");
+		fprintf(file, " <a href=\"lljk3.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#FFC107;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">月流量</a> \n ");
+		fprintf(file, " <a href=\"lljk4.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#DC3545;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">年流量</a><BR>\n");
 
-		fprintf(file, "<BR>\n子网列表：<BR>\n");
-		if (config.tag == '1')
-			fprintf(file, "- <a href=\"lljk.html\">Top20</a> -");
-		else
-			fprintf(file, "- <a href=\"lljk%c.html\">Top20</a> -", config.tag);
+		fprintf(file, "<BR>\n选择一个子网地址：<BR>\n");
+		//if (config.tag == '1')
+			//fprintf(file, "- <a href=\"lljk.html\">Top20</a> -");
+		//else
+			//fprintf(file, "- <a href=\"lljk%c.html\">Top20</a> -", config.tag);
 
 		for (Counter = 0; Counter < SubnetCount; Counter++)
 			{
@@ -369,7 +411,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 
         // PASS 1:  Write out the table
 
-		fprintf(file, "<TR bgcolor=lightblue><TD>IP 和主机名<TD align=center>总计<TD align=center>发送总量<TD align=center>接收总量<TD align=center>FTP<TD align=center>HTTP<TD align=center>SMTP<TD align=center>TCP<TD align=center>UDP<TD align=center>ICMP\n");
+		fprintf(file, "<TR bgcolor=lightblue><TD>IP地址<TD align=center>总计<TD align=center>上传总量<TD align=center>下载总量<TD align=center>FTP流量<TD align=center>HTTP流量<TD align=center>SMTP流量<TD align=center>TCP流量<TD align=center>UDP流量<TD align=center>ICMP流量\n");
 		for (tCounter=0, Counter=0; Counter < NumIps; Counter++)
 			{
             if (SubnetTable[SubnetCounter].ip == (SummaryData[Counter]->IP & SubnetTable[SubnetCounter].mask))
@@ -396,16 +438,16 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 	    					"<a href=\"#top\" "
     						"style=\"display:inline-block; background:#007bff; color:white; padding:5px 10px; text-decoration:none; border-radius:5px;\">返回顶部</a>\n"
     						"</h5>\n"
-    						"<h1 style=\"margin-top:0;\">%s - %s</h1>\n"
-    						"<strong>发送流量图:</strong><br>\n"
-    						"<img src=\"%s-%c-S.png\" alt=\"发送流量数据 %s\"><br>\n"
+    						"<h1 style=\"margin-top:0;\">全网总计 - %s</h1>\n"
+    						"<strong>上传流量:</strong><br>\n"
+    						"<img src=\"%s-%c-S.png\" alt=\"上传流量数据图 %s\"><br>\n"
     						"<img src=\"%s\" alt=\"图例\"><br>\n"
-    						"<strong>接收流量图:</strong><br>\n"
-    						"<img src=\"%s-%c-R.png\" alt=\"接收流量数据 %s\"><br>\n"
+    						"<strong>下载流量:</strong><br>\n"
+    						"<img src=\"%s-%c-R.png\" alt=\"下载流量数据图 %s\"><br>\n"
     						"<img src=\"%s\" alt=\"图例\">\n"
     						"</div>\n",
     						Buffer1, config.tag,              // 锚点
-    						Buffer1, HostName,                // 标题中的 IP 和主机名
+    						 HostName,                // 标题中的 IP 和主机名
     						Buffer1, config.tag, Buffer1,     // 发送图像路径和 ALT
     						legend_base64,                    // 图例图片
     						Buffer1, config.tag, Buffer1,     // 接收图像路径和 ALT
@@ -824,7 +866,7 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
     sample_end=sample_begin+config.interval;
 
     black = gdImageColorAllocate(im, 0, 0, 0);
-    red   = gdImageColorAllocate(im, 255, 0, 0);
+    //red   = gdImageColorAllocate(im, 255, 0, 0);
 
     gdImageLine(im, 0, YHEIGHT-YOFFSET, XWIDTH, YHEIGHT-YOFFSET, black);
 
@@ -851,14 +893,14 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
 	    while (x < (XWIDTH-10))
     	    {
         	// Day Lines
-	        gdImageLine(im, x, 0, x, YHEIGHT-YOFFSET, red);
-    	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, red);
+	        gdImageLine(im, x, 0, x, YHEIGHT-YOFFSET, black);
+    	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, black);
 	
     	    // 使用 localtime 的副本，防止修改内部静态结构体
     	    struct tm tmp = *localtime(&MarkTime);
 
     	    // 使用 年-月-日 格式格式化日期（无中文）
-    	    strftime(buffer, 100, "%Y-%m-%d", &tmp);
+    	    strftime(buffer, 100, "%y-%m-%d", &tmp);
     	    gdImageString(im, gdFontSmall, x-30,  YHEIGHT-YOFFSET+10, buffer, black);        
 
 	        // Calculate Next x
@@ -888,12 +930,12 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
 	    while (x < (XWIDTH-10))
     	    {
         	// Month Lines
-	        gdImageLine(im, x, 0, x, YHEIGHT-YOFFSET, red);
-    	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, red);
+	        gdImageLine(im, x, 0, x, YHEIGHT-YOFFSET, black);
+    	    gdImageLine(im, x+1, 0, x+1, YHEIGHT-YOFFSET, black);
 	
     	    // 使用本地副本，防止修改全局结构体
     	    struct tm tmp = *localtime(&MarkTime);  // 拷贝 localtime 返回的结构体内容
-    	    strftime(buffer, 100, "%Y-%m-%d", &tmp);  // 用副本打印日期
+    	    strftime(buffer, 100, "%y-%m-%d", &tmp);  // 用副本打印日期
     	    gdImageString(im, gdFontSmall, x-6,  YHEIGHT-YOFFSET+10, buffer, black);        
 
 	     	// 修改副本的月份
@@ -971,5 +1013,4 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
     	x = (MarkTime-sample_begin)*((XWIDTH-XOFFSET)/config.range) + XOFFSET;
         }
     }
-
 
