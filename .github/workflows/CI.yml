@@ -69,7 +69,7 @@ jobs:
          CFLAGS="-ffunction-sections -fdata-sections -O2 -w $CFLAGS -I/opt/libgd-${URL}/include -I/opt/zlib-${URL}/include \
            -I/opt/libpng-${URL}/include -I/opt/libpcap-${URL}/include -I/opt/libpq-${URL}/include"
            
-         LDFLAGS="-s $LDFLAGS -L/opt/libgd-${URL}/lib -L/opt/zlib-${URL}/lib -L/opt/libpng-${URL}/lib \
+         LDFLAGS="-s -Wl,--gc-sections $LDFLAGS -L/opt/libgd-${URL}/lib -L/opt/zlib-${URL}/lib -L/opt/libpng-${URL}/lib \
            -L/opt/libpcap-${URL}/lib -L/opt/libpq-${URL}/lib"
            
          echo "CFLAGS=$CFLAGS" >> $GITHUB_ENV
