@@ -225,7 +225,7 @@ jobs:
            ac_cv_file__usr_local_pgsql_lib=no \
            ac_cv_file__usr_local_pgsql_include=no \
            ac_cv_lib_sqlite3_sqlite3_open=no \
-           LDFLAGS="$LDFLAGS -lpq -lpgcommon -lpgport" CFLAGS="$CFLAGS" CXXFLAGS="$CFLAGS" CPPFLAGS="$CFLAGS"
+           LDFLAGS="$LDFLAGS -lpq -lpgcommon -lpgport" CFLAGS="$CFLAGS -DHAVE_LIBPQ=1" CXXFLAGS="$CFLAGS -DHAVE_LIBPQ=1" CPPFLAGS="$CFLAGS -DHAVE_LIBPQ=1"
          make 
          ls
          $STRIP bandwidthd
