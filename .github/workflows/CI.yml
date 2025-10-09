@@ -167,25 +167,51 @@ jobs:
             make install
          fi
          
-     #- name: 缓存 libpq 
-       #id: cache-libpq
-       #uses: actions/cache@v4
-       #with:
-        #path: |
-          #/opt/libpq-${{ matrix.URL }}
-        #key: libpq-${{ matrix.URL }}-cache
-     #- name: 编译 libpq
-       #run: |
-         #if [ ! -d "/opt/libpq-${URL}" ] || [ -z "$(find /opt/libpq-${URL}/lib -name '*.a' 2>/dev/null)" ] ; then
-            #wget https://ftp.postgresql.org/pub/source/v17.4/postgresql-17.4.tar.gz
-            #tar xf postgresql-17.4.tar.gz
-            #cd postgresql-17.4
-            #echo "###########################编译libpq依赖库########################"
-            #./configure --host=${TARGET} --enable-static --disable-shared --prefix=/opt/libpq-${URL} --without-icu \
-              #--without-server --without-readline LDFLAGS="$LDFLAGS" CFLAGS="$CFLAGS" CXXFLAGS="$CFLAGS"
-            #make -j$(nproc)
-            #make install
-         #fi
+     - name: 缓存 libpq 
+       id: cache-libpq
+       uses: actions/cache@v4
+       with:
+        path: |
+          /opt/libpq-${{ matrix.URL }}
+        key: libpq-${{ matrix.URL }}-cache
+     - name: 编译 libpq 静态库
+       env:
+        TARGET: ${{ matrix.target }}
+        URL: ${{ matrix.URL }}
+       run: |
+        if [ ! -d "/opt/libpq-${URL}" ] || [ -z "$(find /opt/libpq-${URL}/lib -name '*.a' 2>/dev/null)" ]; then
+          echo "########################### 下载 PostgreSQL 17.0 源码 ########################"
+          wget -q https://ftp.postgresql.org/pub/source/v15.6/postgresql-15.6.tar.gz
+          tar xf postgresql-15.6.tar.gz
+          cd postgresql-15.6
+
+          echo "########################### 配置编译选项 ########################"
+          ./configure --host=${TARGET} \
+              --enable-static --disable-shared \
+              --without-icu --without-readline \
+              --without-openssl --without-gssapi --without-pam \
+              --without-ldap --without-tcl --without-perl --without-python \
+              --disable-nls --disable-rpath \
+              --with-zlib="yes" \
+              --prefix=/opt/libpq-${URL} \
+              ac_cv_func_malloc_0_nonnull=yes \
+              ac_cv_func_realloc_0_nonnull=yes \
+              LDFLAGS="$LDFLAGS" CFLAGS="$CFLAGS" CXXFLAGS="$CFLAGS"
+
+           echo "########################### 编译并安装 libpq（静态版本） ########################"
+            make -C src/interfaces/libpq all-static-lib -j$(nproc)
+            make -C src/interfaces/libpq install
+
+            echo "########################### 安装公共头文件 ########################"
+            make -C src/include install
+            make -C src/common install
+            make -C src/port install
+
+            echo "########################### 验证静态库符号 ########################"
+            nm /opt/libpq-${URL}/lib/libpq.a | grep pg_encoding_to_char || echo "❌ 缺少 pg_encoding_to_char"
+
+            ls -l /opt/libpq-${URL}/lib
+        fi
    
      - name: 编译 Bandwidthd
        run: |
@@ -198,9 +224,8 @@ jobs:
            ac_cv_file__usr_pkg_include=no \
            ac_cv_file__usr_local_pgsql_lib=no \
            ac_cv_file__usr_local_pgsql_include=no \
-           ac_cv_lib_pq_PQconnectdb=no \
            ac_cv_lib_sqlite3_sqlite3_open=no \
-           LDFLAGS="$LDFLAGS" CFLAGS="$CFLAGS" CXXFLAGS="$CFLAGS" CPPFLAGS="$CFLAGS"
+           LDFLAGS="$LDFLAGS -lpq -lpgcommon -lpgport" CFLAGS="$CFLAGS" CXXFLAGS="$CFLAGS" CPPFLAGS="$CFLAGS"
          make 
          ls
          $STRIP bandwidthd
