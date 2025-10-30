@@ -81,6 +81,13 @@ void signal_handler(int sig)
 			// TODO: Might want to make sure we're not in the middle of wrighting out a log file
 			exit(0);
 			break;
+		case SIGCHLD:  
+			/* Reap all zombie children to prevent zombie processes */  
+			while (waitpid(-1, NULL, WNOHANG) > 0) {  
+				/* Continue reaping until no more zombies */  
+			}  
+			signal(SIGCHLD, signal_handler);  
+			break;  
 		}
 	}
 
@@ -281,7 +288,17 @@ void start_http_server(int port) {
         syslog(LOG_ERR, "无法 fork HTTP 子进程");
         return;
     } else if (pid > 0) {
+		waitpid(pid, NULL, 0);
         return;  // 父进程直接返回
+    }
+	// First child - fork again to orphan the HTTP server  
+    pid = fork();  
+    if (pid < 0) {  
+        syslog(LOG_ERR, "无法 fork HTTP 孙子进程");  
+        _exit(1);  
+    } else if (pid > 0) {  
+        // First child exits immediately, orphaning second child  
+        _exit(0);  
     }
 
     // 子进程独立运行
@@ -701,6 +718,7 @@ int main(int argc, char **argv)
 
 	signal(SIGHUP, signal_handler);
 	signal(SIGTERM, signal_handler);
+	signal(SIGCHLD, signal_handler);
 
 	if (IPDataStore)  // If there is data in the datastore draw some initial graphs
 		{
