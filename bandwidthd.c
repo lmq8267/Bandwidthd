@@ -17,6 +17,7 @@
 #define WEB_ROOT "/tmp/Bandwidthd_html"
 #define INDEX_PAGE "lljk.html"
 #define BUFFER_SIZE 8096
+#define MAX_CONCURRENT_CONNECTIONS 50
 /*
 #ifdef DEBUG
 #define fork() (0)
@@ -191,6 +192,11 @@ int WriteOutWebpages(time_t timestamp)
 				}
 
 			MakeIndexPages(NumGraphs, SummaryData);
+			// 修复: 子进程释放内存  
+			for (Counter = 0; Counter < NumGraphs; Counter++) {  
+				free(SummaryData[Counter]);  
+			}  
+			free(SummaryData);
 	
 			_exit(0);
 			}
@@ -387,15 +393,21 @@ serve:
         int fd = open(file_path, O_RDONLY);
         if (fd < 0) {
             syslog(LOG_ERR, "请求页面文件失败: %s", strerror(errno));
-            const char *not_found = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found";
+            const char *not_found =
+        			"HTTP/1.1 404 未找到\r\n"
+        			"Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        			"404 错误：请求的页面不存在";
             write(client_fd, not_found, strlen(not_found));
         } else {
             // 检查是否被写锁定
             struct flock fl = { .l_type = F_RDLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 0 };
             if (fcntl(fd, F_SETLK, &fl) == -1) {
-                syslog(LOG_ERR, "页面文件正在写入中，暂不响应: %s", file_path);
+                syslog(LOG_ERR, "页面文件正在更新中，暂不响应: %s", file_path);
                 close(fd);
-                const char *busy = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nFile is being updated";
+                const char *busy =
+            			"HTTP/1.1 503 服务不可用\r\n"
+            			"Content-Type: text/plain; charset=utf-8\r\n\r\n"
+            			"503 错误：文件正在更新，请稍后再试";
                 write(client_fd, busy, strlen(busy));
             } else {
                 const char *header = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
@@ -406,7 +418,7 @@ serve:
                     while (sent < n) {
                         ssize_t written = write(client_fd, buffer + sent, n - sent);
                         if (written <= 0) {
-                            //syslog(LOG_ERR, "写入客户端失败: %s", strerror(errno));
+                            //syslog(LOG_ERR, "发送页面内容到客户端失败: %s", strerror(errno));
                             break;
                         }
                         sent += written;
@@ -424,7 +436,6 @@ serve:
 
     close(server_fd);
 }
-
 
 #define DEFAULT_CONFIG_DIR "/etc/storage"
 int main(int argc, char **argv)
@@ -1285,27 +1296,15 @@ void CommitData(time_t timestamp)
 		{
 		StoreIPDataInRam(IpTable);
 
-		// Reap a couple zombies
-		//if (waitpid(-1, NULL, WNOHANG))  // A child was reaped
-			//MayGraph = TRUE;
-		// 尝试清理一个僵尸进程（非阻塞方式）
-    		pid_t reaped_pid = waitpid(-1, NULL, WNOHANG); // 尝试获取任意子进程的退出状态（非阻塞）
-    		if (reaped_pid > 0)
-    		{
-        		// 成功清理了一个子进程，记录其 PID
-        		//syslog(LOG_INFO, "成功清理僵尸进程，PID = %d", reaped_pid);
-        		MayGraph = TRUE; // 允许生成图形
-    		}
-    		else if (reaped_pid == -1)
-   		 {
-        		// 清理失败，打印错误和可能的原因
-        		syslog(LOG_ERR, "waitpid 调用失败，errno = %d (%s)", errno, strerror(errno));
-    		}
-    		else
-    		{
-        		// 没有子进程需要清理
-        		//syslog(LOG_ERR, "没有僵尸进程需要清理");
-    		}
+		// 循环回收所有僵尸进程  
+		int reaped_count = 0;  
+		pid_t reaped_pid;  
+		while ((reaped_pid = waitpid(-1, NULL, WNOHANG)) > 0) {  
+			reaped_count++;  
+		}  
+		if (reaped_count > 0) {  
+			MayGraph = TRUE;  
+		}
 		if (GraphIntervalCount%config.skip_intervals == 0 && MayGraph)
 			{
 			MayGraph = FALSE;
