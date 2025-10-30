@@ -216,6 +216,7 @@ jobs:
      - name: 编译 Bandwidthd
        run: |
          export CROSS_COMPILE=${URL}-
+         echo "################  开始编译PG数据库版...  #######################"
          ./configure --host=${TARGET} --disable-shared --enable-static \
            --prefix=/opt/Bandwidthd \
            ac_cv_file__sw_lib=no \
@@ -227,10 +228,27 @@ jobs:
            ac_cv_lib_sqlite3_sqlite3_open=no \
            LDFLAGS="$LDFLAGS -lpq -lpgcommon -lpgport" CFLAGS="$CFLAGS -DHAVE_LIBPQ=1" CXXFLAGS="$CFLAGS -DHAVE_LIBPQ=1" CPPFLAGS="$CFLAGS -DHAVE_LIBPQ=1"
          make 
-         ls
+         du -sh *
          $STRIP bandwidthd
          file bandwidthd
-         #mv -f bandwidthd bandwidthd-${TARGET}
+         mv -f bandwidthd bandwidthd-pgsql
+         echo "################  开始编译普通版...  #######################"
+         make clean
+         ./configure --host=${TARGET} --disable-shared --enable-static \
+           --prefix=/opt/Bandwidthd \
+           ac_cv_file__sw_lib=no \
+           ac_cv_file__sw_include=no \
+           ac_cv_file__usr_pkg_lib=no \
+           ac_cv_file__usr_pkg_include=no \
+           ac_cv_file__usr_local_pgsql_lib=no \
+           ac_cv_file__usr_local_pgsql_include=no \
+           ac_cv_lib_pq_PQconnectdb=no \
+           ac_cv_lib_sqlite3_sqlite3_open=no \
+           LDFLAGS="$LDFLAGS" CFLAGS="$CFLAGS" CXXFLAGS="$CFLAGS" CPPFLAGS="$CFLAGS"
+         make 
+         du -sh *
+         $STRIP bandwidthd
+         file bandwidthd
          echo "build_time=$(date '+%Y年%m月%d日%H:%M:%S' | jq -sRr @uri)" >> $GITHUB_ENV
          #tag=$(date '+%Y-%m-%d')
          echo "tag=2.0.1" >> $GITHUB_ENV
@@ -244,12 +262,13 @@ jobs:
         install-only: true
      - name: 压缩打包
        if: matrix.target != 'mips64-linux'
-       run: upx --lzma --best bandwidthd
+       run: upx --lzma --best bandwidthd bandwidthd-pgsql || true
         
      - uses: actions/upload-artifact@v4
        with:
         name: Bandwidthd-${{ matrix.target }}
         path: |
            bandwidthd
+           bandwidthd-pgsql
            bandwidthd.conf
         
