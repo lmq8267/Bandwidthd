@@ -1305,6 +1305,9 @@ void CommitData(time_t timestamp)
 		if (reaped_count > 0) {  
 			MayGraph = TRUE;  
 		}
+		// 声明静态变量用于超时检测  
+    	static pid_t last_graph_pid = 0;  
+    	static time_t last_graph_time = 0; 
 		if (!MayGraph && last_graph_pid > 0) {  
         	time_t now = time(NULL);  
         	if (now - last_graph_time > 600) {  // 10分钟超时  
