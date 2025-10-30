@@ -208,7 +208,7 @@ int WriteOutWebpages(time_t timestamp)
 		break;
 
 		default: /* parent + successful fork, assume graph success */
-			return 0;
+			return graphpid;  // 返回子进程 PID 而不是 0 
 		break;
 	}
 }
@@ -1305,6 +1305,16 @@ void CommitData(time_t timestamp)
 		if (reaped_count > 0) {  
 			MayGraph = TRUE;  
 		}
+		if (!MayGraph && last_graph_pid > 0) {  
+        	time_t now = time(NULL);  
+        	if (now - last_graph_time > 600) {  // 10分钟超时  
+            	syslog(LOG_WARNING, "绘图子进程 %d 已卡住10分钟，强制恢复绘图功能", last_graph_pid);  
+            	kill(last_graph_pid, SIGKILL);  
+            	waitpid(last_graph_pid, NULL, 0);  
+            	last_graph_pid = 0;  
+            	MayGraph = TRUE;  // 强制恢复  
+        	}  
+    	}
 		if (GraphIntervalCount%config.skip_intervals == 0 && MayGraph)
 			{
 			MayGraph = FALSE;
