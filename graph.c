@@ -124,12 +124,12 @@ void QuickSortSummaryData(struct SummaryData *SummaryData[], int left, int right
 #define NumFactor 1024
 static void FormatNum(unsigned long long n, char *buf, int len) {
     double f;
-    if (n<NumFactor) { snprintf(buf,len,"<td align=\"right\"><tt>%i&nbsp;</tt></td>",(int)n); return; }
+    if (n<NumFactor) { snprintf(buf,len,"<td align=\"center\"><tt>%i&nbsp;</tt></td>",(int)n); return; }
     f = n;
-    f /= NumFactor; if (f<NumFactor) { snprintf(buf,len,"<td align=\"right\"><tt>%.1fK</tt></td>",f); return; }
-    f /= NumFactor; if (f<NumFactor) { snprintf(buf,len,"<td align=\"right\"><tt>%.1fM</tt></td>",f); return; }
-    f /= NumFactor; if (f<NumFactor) { snprintf(buf,len,"<td align=\"right\"><tt>%.1fG</tt></td>",f); return; }
-    f /= NumFactor; snprintf(buf,len,"<td align=\"right\"><tt>%.1fT</tt></td>\n",f);
+    f /= NumFactor; if (f<NumFactor) { snprintf(buf,len,"<td align=\"center\"><tt>%.1fK</tt></td>",f); return; }
+    f /= NumFactor; if (f<NumFactor) { snprintf(buf,len,"<td align=\"center\"><tt>%.1fM</tt></td>",f); return; }
+    f /= NumFactor; if (f<NumFactor) { snprintf(buf,len,"<td align=\"center\"><tt>%.1fG</tt></td>",f); return; }
+    f /= NumFactor; snprintf(buf,len,"<td align=\"center\"><tt>%.1fT</tt></td>\n",f);
 }
 
 void PrintTableLine(FILE *stream, struct SummaryData *Data, int Counter)
@@ -167,7 +167,7 @@ void PrintTableLine(FILE *stream, struct SummaryData *Data, int Counter)
 		fprintf(stream, "<TR bgcolor=lightblue>");
 
 	if (Data->Graph)
-		fprintf(stream, "<TD><a href=\"#%s-%c\">%s</a></TD>%s%s%s%s%s%s%s%s%s</TR>\n",
+		fprintf(stream, "<TD align=center><a href=\"#%s-%c\">%s</a></TD>%s%s%s%s%s%s%s%s%s</TR>\n",
 			Buffer1, // Ip
 			config.tag,
 			Buffer1, // Ip
@@ -181,7 +181,7 @@ void PrintTableLine(FILE *stream, struct SummaryData *Data, int Counter)
 			Buffer7, // UDP
 			Buffer8); // ICMP
 	else
-		fprintf(stream, "<TD>%s</TD>%s%s%s%s%s%s%s%s%s</TR>\n",
+		fprintf(stream, "<TD align=center>%s</TD>%s%s%s%s%s%s%s%s%s</TR>\n",
 			Buffer1, // Ip
 			Buffer2, // Total
 			Buffer3, // TotalSent
@@ -277,6 +277,37 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 	fprintf(file, "});");
 	fprintf(file, "});");
 	fprintf(file, "});");
+	fprintf(file, "var sortDirection={};\n");  
+	fprintf(file, "function sortTable(col){\n");  
+	fprintf(file, "var table=document.querySelector('table');\n");  
+	fprintf(file, "var rows=Array.from(table.querySelectorAll('tr')).slice(1);\n");  
+	fprintf(file, "var asc=sortDirection[col]!==true;\n");  
+	fprintf(file, "sortDirection[col]=asc;\n");  
+	fprintf(file, "rows.sort(function(a,b){\n");  
+	fprintf(file, "var aText=a.cells[col].textContent.trim();\n");  
+	fprintf(file, "var bText=b.cells[col].textContent.trim();\n");  
+	fprintf(file, "if(col===0){\n");  
+	fprintf(file, "var aIP=aText.replace(/<[^>]*>/g,'').split('.').map(function(n){return('000'+n).slice(-3);}).join('.');\n");  
+	fprintf(file, "var bIP=bText.replace(/<[^>]*>/g,'').split('.').map(function(n){return('000'+n).slice(-3);}).join('.');\n");  
+	fprintf(file, "return asc?aIP.localeCompare(bIP):bIP.localeCompare(aIP);\n");  
+	fprintf(file, "}\n");  
+	fprintf(file, "var aVal=parseValue(aText);\n");  
+	fprintf(file, "var bVal=parseValue(bText);\n");  
+	fprintf(file, "return asc?aVal-bVal:bVal-aVal;\n");  
+	fprintf(file, "});\n");  
+	fprintf(file, "rows.forEach(function(row,idx){\n");  
+	fprintf(file, "if(idx%%4===0||idx%%4===1){row.removeAttribute('bgcolor');}else{row.setAttribute('bgcolor','lightblue');}\n");  
+	fprintf(file, "table.appendChild(row);\n");  
+	fprintf(file, "});\n");  
+	fprintf(file, "}\n");  
+	fprintf(file, "function parseValue(text){\n");  
+	fprintf(file, "var match=text.match(/([0-9.]+)([KMGT]?)/);\n");  
+	fprintf(file, "if(!match)return 0;\n");  
+	fprintf(file, "var num=parseFloat(match[1]);\n");  
+	fprintf(file, "var unit=match[2];\n");  
+	fprintf(file, "var mult={'K':1024,'M':1048576,'G':1073741824,'T':1099511627776};\n");  
+	fprintf(file, "return num*(mult[unit]||1);\n");  
+	fprintf(file, "}\n");
 	fprintf(file, "</script>\n");
 	fprintf(file, "更新时间： %s 星期%s<br>\n", time_buf, weekdays_cn[weekday]);
 	fprintf(file, "<BR>\n <a href=\"lljk.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#007BFF;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">日流量</a> \n ");
@@ -303,7 +334,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 
     // PASS 1:  Write out the table
 
-	fprintf(file, "<TR bgcolor=lightblue><TD>IP地址<TD align=center>总计<TD align=center>上传总量<TD align=center>下载总量<TD align=center>FTP流量<TD align=center>HTTP流量<TD align=center>SMTP流量<TD align=center>TCP流量<TD align=center>UDP流量<TD align=center>ICMP流量\n");
+	fprintf(file, "<TR bgcolor=lightblue><TD align=center onclick=\"sortTable(0)\" style=\"cursor:pointer;color:blue;border-color:black\">IP地址</TD><TD align=center onclick=\"sortTable(1)\" style=\"cursor:pointer;color:blue;border-color:black\">总计</TD><TD align=center onclick=\"sortTable(2)\" style=\"cursor:pointer;color:blue;border-color:black\">上传总量</TD><TD align=center onclick=\"sortTable(3)\" style=\"cursor:pointer;color:blue;border-color:black\">下载总量</TD><TD align=center onclick=\"sortTable(4)\" style=\"cursor:pointer;color:blue;border-color:black\">FTP流量</TD><TD align=center onclick=\"sortTable(5)\" style=\"cursor:pointer;color:blue;border-color:black\">HTTP流量</TD><TD align=center onclick=\"sortTable(6)\" style=\"cursor:pointer;color:blue;border-color:black\">SMTP流量</TD><TD align=center onclick=\"sortTable(7)\" style=\"cursor:pointer;color:blue;border-color:black\">TCP流量</TD><TD align=center onclick=\"sortTable(8)\" style=\"cursor:pointer;color:blue;border-color:black\">UDP流量</TD><TD align=center onclick=\"sortTable(9)\" style=\"cursor:pointer;color:blue;border-color:black\">ICMP流量</TD>\n");
 	for (Counter=0; Counter < 21 && Counter < NumIps; Counter++)
 		PrintTableLine(file, SummaryData[Counter], Counter);
 
@@ -387,6 +418,37 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 		fprintf(file, "});");
 		fprintf(file, "});");
 		fprintf(file, "});");
+		fprintf(file, "var sortDirection={};\n");  
+		fprintf(file, "function sortTable(col){\n");  
+		fprintf(file, "var table=document.querySelector('table');\n");  
+		fprintf(file, "var rows=Array.from(table.querySelectorAll('tr')).slice(1);\n");  
+		fprintf(file, "var asc=sortDirection[col]!==true;\n");  
+		fprintf(file, "sortDirection[col]=asc;\n");  
+		fprintf(file, "rows.sort(function(a,b){\n");  
+		fprintf(file, "var aText=a.cells[col].textContent.trim();\n");  
+		fprintf(file, "var bText=b.cells[col].textContent.trim();\n");  
+		fprintf(file, "if(col===0){\n");  
+		fprintf(file, "var aIP=aText.replace(/<[^>]*>/g,'').split('.').map(function(n){return('000'+n).slice(-3);}).join('.');\n");  
+		fprintf(file, "var bIP=bText.replace(/<[^>]*>/g,'').split('.').map(function(n){return('000'+n).slice(-3);}).join('.');\n");  
+		fprintf(file, "return asc?aIP.localeCompare(bIP):bIP.localeCompare(aIP);\n");  
+		fprintf(file, "}\n");  
+		fprintf(file, "var aVal=parseValue(aText);\n");  
+		fprintf(file, "var bVal=parseValue(bText);\n");  
+		fprintf(file, "return asc?aVal-bVal:bVal-aVal;\n");  
+		fprintf(file, "});\n");  
+		fprintf(file, "rows.forEach(function(row,idx){\n");  
+		fprintf(file, "if(idx%%4===0||idx%%4===1){row.removeAttribute('bgcolor');}else{row.setAttribute('bgcolor','lightblue');}\n");  
+		fprintf(file, "table.appendChild(row);\n");  
+		fprintf(file, "});\n");  
+		fprintf(file, "}\n");  
+		fprintf(file, "function parseValue(text){\n");  
+		fprintf(file, "var match=text.match(/([0-9.]+)([KMGT]?)/);\n");  
+		fprintf(file, "if(!match)return 0;\n");  
+		fprintf(file, "var num=parseFloat(match[1]);\n");  
+		fprintf(file, "var unit=match[2];\n");  
+		fprintf(file, "var mult={'K':1024,'M':1048576,'G':1073741824,'T':1099511627776};\n");  
+		fprintf(file, "return num*(mult[unit]||1);\n");  
+		fprintf(file, "}\n");
 		fprintf(file, "</script>\n");
 		fprintf(file, "更新时间： %s 星期%s<br>\n", time_buf, weekdays_cn[weekday]);
 		fprintf(file, "<BR>\n <a href=\"lljk.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#007BFF;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">日流量</a> \n ");
@@ -411,7 +473,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 
         // PASS 1:  Write out the table
 
-		fprintf(file, "<TR bgcolor=lightblue><TD>IP地址<TD align=center>总计<TD align=center>上传总量<TD align=center>下载总量<TD align=center>FTP流量<TD align=center>HTTP流量<TD align=center>SMTP流量<TD align=center>TCP流量<TD align=center>UDP流量<TD align=center>ICMP流量\n");
+		fprintf(file, "<TR bgcolor=lightblue><TD align=center onclick=\"sortTable(0)\" style=\"cursor:pointer;color:blue;border-color:black\">IP地址</TD><TD align=center onclick=\"sortTable(1)\" style=\"cursor:pointer;color:blue;border-color:black\">总计</TD><TD align=center onclick=\"sortTable(2)\" style=\"cursor:pointer;color:blue;border-color:black\">上传总量</TD><TD align=center onclick=\"sortTable(3)\" style=\"cursor:pointer;color:blue;border-color:black\">下载总量</TD><TD align=center onclick=\"sortTable(4)\" style=\"cursor:pointer;color:blue;border-color:black\">FTP流量</TD><TD align=center onclick=\"sortTable(5)\" style=\"cursor:pointer;color:blue;border-color:black;border-color:black\">HTTP流量</TD><TD align=center onclick=\"sortTable(6)\" style=\"cursor:pointer;color:blue;border-color:black\">SMTP流量</TD><TD align=center onclick=\"sortTable(7)\" style=\"cursor:pointer;color:blue;border-color:black\">TCP流量</TD><TD align=center onclick=\"sortTable(8)\" style=\"cursor:pointer;color:blue;border-color:black\">UDP流量</TD><TD align=center onclick=\"sortTable(9)\" style=\"cursor:pointer;color:blue;border-color:black\">ICMP流量</TD>\n");
 		for (tCounter=0, Counter=0; Counter < NumIps; Counter++)
 			{
             if (SubnetTable[SubnetCounter].ip == (SummaryData[Counter]->IP & SubnetTable[SubnetCounter].mask))
@@ -1013,4 +1075,3 @@ void PrepareXAxis(gdImagePtr im, time_t timestamp)
     	x = (MarkTime-sample_begin)*((XWIDTH-XOFFSET)/config.range) + XOFFSET;
         }
     }
-
