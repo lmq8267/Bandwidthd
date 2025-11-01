@@ -1314,27 +1314,21 @@ void CommitData(time_t timestamp)
 		{
 		StoreIPDataInRam(IpTable);
 
-		// 循环回收所有僵尸进程  
-		int reaped_count = 0;  
-		pid_t reaped_pid;  
-		while ((reaped_pid = waitpid(-1, NULL, WNOHANG)) > 0) {  
-			reaped_count++;  
-		}  
-		if (reaped_count > 0) {  
-			MayGraph = TRUE;  
-		}
-		// 声明静态变量用于超时检测  
-    	static pid_t last_graph_pid = 0;  
-    	static time_t last_graph_time = 0; 
-		if (!MayGraph && last_graph_pid > 0) {  
-        	time_t now = time(NULL);  
-        	if (now - last_graph_time > 600) {  // 10分钟超时  
-            	syslog(LOG_WARNING, "绘图子进程 %d 已卡住10分钟，强制恢复绘图功能", last_graph_pid);  
-            	kill(last_graph_pid, SIGKILL);  
-            	waitpid(last_graph_pid, NULL, 0);  
-            	last_graph_pid = 0;  
-            	MayGraph = TRUE;  // 强制恢复  
-        	}  
+		// 静态变量记录绘图子进程 PID  
+   		static pid_t graph_child_pid = 0;  
+      
+    	// 如果有记录的绘图子进程，尝试回收  
+    	if (graph_child_pid > 0) {  
+        	pid_t result = waitpid(graph_child_pid, NULL, WNOHANG);  
+        	if (result > 0) {  
+            	// 成功回收  
+            	graph_child_pid = 0;  
+           	 	MayGraph = TRUE;  
+        	} else if (result == -1) {  
+            	// 进程不存在或出错  
+            	graph_child_pid = 0;  
+            	MayGraph = TRUE;  
+       		 }  
     	}
 		if (GraphIntervalCount%config.skip_intervals == 0 && MayGraph)
 			{
