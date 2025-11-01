@@ -1314,21 +1314,31 @@ void CommitData(time_t timestamp)
 		{
 		StoreIPDataInRam(IpTable);
 
-		// 静态变量记录绘图子进程 PID  
-   		static pid_t graph_child_pid = 0;  
+		static pid_t graph_child_pid = 0;  
+    	static time_t graph_start_time = 0;  
       
-    	// 如果有记录的绘图子进程，尝试回收  
+    	// 检查是否有超时的绘图子进程  
     	if (graph_child_pid > 0) {  
-        	pid_t result = waitpid(graph_child_pid, NULL, WNOHANG);  
-        	if (result > 0) {  
-            	// 成功回收  
-            	graph_child_pid = 0;  
-           	 	MayGraph = TRUE;  
-        	} else if (result == -1) {  
-            	// 进程不存在或出错  
-            	graph_child_pid = 0;  
+        	time_t now = time(NULL);  
+        	if (now - graph_start_time > 600) {  // 10分钟超时  
+            	syslog(LOG_WARNING, "绘图子进程 PID=%d 超时,强制终止", graph_child_pid);  
+            	kill(graph_child_pid, SIGKILL);  
+            	waitpid(graph_child_pid, NULL, 0);  
+           	 	graph_child_pid = 0;  
             	MayGraph = TRUE;  
-       		 }  
+        	} else {  
+            	// 尝试非阻塞回收  
+           	 pid_t result = waitpid(graph_child_pid, NULL, WNOHANG);  
+            	if (result > 0) {  
+                	syslog(LOG_INFO, "成功回收绘图子进程 PID=%d", graph_child_pid);  
+                	graph_child_pid = 0;  
+                	MayGraph = TRUE;  
+           		 } else if (result == -1) {  
+                	syslog(LOG_WARNING, "绘图子进程 PID=%d 已不存在", graph_child_pid);  
+                	graph_child_pid = 0;  
+                	MayGraph = TRUE;  
+            	}  
+        	}  
     	}
 		if (GraphIntervalCount%config.skip_intervals == 0 && MayGraph)
 			{
