@@ -40,6 +40,7 @@ unsigned int SubnetCount = 0;
 time_t IntervalStart;
 time_t ProgramStart;
 int RotateLogs = FALSE;
+static int http_server_fd = -1;
     
 struct SubnetData SubnetTable[SUBNET_NUM];
 struct IPData IpTable[IP_NUM];
@@ -71,18 +72,78 @@ void signal_handler(int sig)
 					kill(workerchildpids[i], SIGHUP);
 				}
 			break;
-		case SIGTERM:
-			if (config.tag == '1') 
-				{
-				int i;
+		case SIGTERM:  
+    		signal(SIGTERM, SIG_IGN);  // 防止重复信号  
+      
+    		if (config.tag == '1') {  
+        		int i;  
+          
+        		// 1. 先终止所有 worker 子进程  
+        		for (i=0; i < NR_WORKER_CHILDS; i++) {  
+            		if (workerchildpids[i] > 0) {  
+                		kill(workerchildpids[i], SIGTERM);  
+            		}  
+        		}  
+          
+        		// 2. 等待 worker 子进程退出(最多等待5秒)  
+        		time_t start = time(NULL);  
+        		int remaining = NR_WORKER_CHILDS;  
+        		while (remaining > 0 && (time(NULL) - start) < 5) {  
+            		for (i=0; i < NR_WORKER_CHILDS; i++) {  
+                		if (workerchildpids[i] > 0) {  
+                    		if (waitpid(workerchildpids[i], NULL, WNOHANG) > 0) {  
+                        		workerchildpids[i] = 0;  
+                        		remaining--;  
+                    		}  
+                		}  
+            		}  
+            		if (remaining > 0) usleep(100000);  // 等待100ms  
+        		}  
+          
+        		// 3. 强制终止未响应的 worker 子进程  
+        		for (i=0; i < NR_WORKER_CHILDS; i++) {  
+            		if (workerchildpids[i] > 0) {  
+                		kill(workerchildpids[i], SIGKILL);  
+                		waitpid(workerchildpids[i], NULL, 0);  
+            		}  
+        		}  
+    		}  
+      
+   			 // 4. 回收所有绘图子进程  
+    		 while (waitpid(-1, NULL, WNOHANG) > 0);  
+      
+    		// 5. 清理资源  
+    		if (pd) pcap_close(pd);  
+      
+    		// 6. 删除 PID 文件  
+    		unlink("/var/run/bandwidthd.pid");  
+      
+    		// 根据 config.tag 输出不同的退出信息
+			char tag_desc[64];  
 
-				/* send term signal to children */
-				for (i=0; i < NR_WORKER_CHILDS; i++) 
-					kill(workerchildpids[i], SIGTERM);
-				}
-			// TODO: Might want to make sure we're not in the middle of wrighting out a log file
-			exit(0);
-			break;
+			switch (config.tag) {
+    			case 1:
+        			snprintf(tag_desc, sizeof(tag_desc), "每日流量统计主进程");
+        			break;
+    			case 2:
+        			snprintf(tag_desc, sizeof(tag_desc), "每周流量统计子进程");
+        			break;
+    			case 3:
+        			snprintf(tag_desc, sizeof(tag_desc), "每月流量统计子进程");
+        			break;
+    			case 4:
+        			snprintf(tag_desc, sizeof(tag_desc), "每年流量统计子进程");
+        			break;
+    			default:
+        			snprintf(tag_desc, sizeof(tag_desc), "服务(tag=%d)", config.tag);
+        			break;
+			}
+
+			// 输出更具可读性的日志
+			syslog(LOG_INFO, "%s 正常退出", tag_desc);
+  
+    		exit(0);  
+    		break;
 		case SIGCHLD:  
 			/* Reap all zombie children to prevent zombie processes */  
 			while (waitpid(-1, NULL, WNOHANG) > 0) {  
@@ -349,7 +410,16 @@ void makepidfile(pid_t pid)
 		}
 	else
 		syslog(LOG_ERR, "无法打开 /var/run/bandwidthd.pid 进行写入");
-	}
+}
+
+void http_server_shutdown(int sig) {  
+    syslog(LOG_INFO, "HTTP 服务器收到终止信号 %d,正在退出...", sig);  
+    if (http_server_fd > 0) {  
+        close(http_server_fd);  
+        http_server_fd = -1;  
+    }  
+    _exit(0);  
+}
 
 // 启动 HTTP 服务函数（后台运行）
 pid_t http_server_pid = 0;  // 记录HTTP服务器PID
@@ -385,28 +455,29 @@ void start_http_server(int port) {
     close(STDOUT_FILENO);            // 关闭标准输出
     close(STDERR_FILENO);            // 关闭标准错误
     signal(SIGPIPE, SIG_IGN);
+	signal(SIGTERM, http_server_shutdown);  // 自定义的清理函数  
+	signal(SIGINT, http_server_shutdown);
 
-    int server_fd;
     struct sockaddr_in6 addr6;
     memset(&addr6, 0, sizeof(addr6));
     addr6.sin6_family = AF_INET6;
     addr6.sin6_port = htons(port);
     addr6.sin6_addr = in6addr_any;
 
-    server_fd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (server_fd < 0) {
+    http_server_fd = socket(AF_INET6, SOCK_STREAM, 0);
+    if (http_server_fd < 0) {
         syslog(LOG_ERR, "IPv6 socket 创建失败，尝试使用 IPv4...");
         goto ipv4_fallback;
     }
 
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(http_server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     opt = 0;
-    setsockopt(server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &opt, sizeof(opt)); // 启用 IPv4 映射
+    setsockopt(http_server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &opt, sizeof(opt)); // 启用 IPv4 映射
 
-    if (bind(server_fd, (struct sockaddr*)&addr6, sizeof(addr6)) < 0) {
+    if (bind(http_server_fd, (struct sockaddr*)&addr6, sizeof(addr6)) < 0) {
         syslog(LOG_ERR, "IPv6 bind 失败，尝试使用 IPv4...");
-        close(server_fd);
+        close(http_server_fd);
         goto ipv4_fallback;
     }
 
@@ -419,33 +490,33 @@ ipv4_fallback: {
     addr4.sin_port = htons(port);
     addr4.sin_addr.s_addr = INADDR_ANY;
 
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0) {
+    http_server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (http_server_fd < 0) {
         syslog(LOG_ERR, "IPv4 socket 创建失败");
         exit(1);
     }
 
     opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(http_server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    if (bind(server_fd, (struct sockaddr*)&addr4, sizeof(addr4)) < 0) {
+    if (bind(http_server_fd, (struct sockaddr*)&addr4, sizeof(addr4)) < 0) {
         syslog(LOG_ERR, "IPv4 bind 失败");
-        close(server_fd);
+        close(http_server_fd);
         exit(1);
     }
 }
 
 serve:
-    if (listen(server_fd, 10) < 0) {
+    if (listen(http_server_fd, 10) < 0) {
         syslog(LOG_ERR, "HTTP listen 失败");
-        close(server_fd);
+        close(http_server_fd);
         exit(1);
     }
 
     syslog(LOG_ERR, "HTTP 服务已启动，监听端口 %d", port);
 
     while (1) {
-        int client_fd = accept(server_fd, NULL, NULL);
+        int client_fd = accept(http_server_fd, NULL, NULL);
         if (client_fd < 0) continue;
 
         // 设置接收超时，防止 read 阻塞导致卡住
@@ -528,7 +599,7 @@ serve:
         close(client_fd);
     }
 
-    close(server_fd);
+    close(http_server_fd);
 }
 
 #define DEFAULT_CONFIG_DIR "/etc/storage"
@@ -561,7 +632,7 @@ int main(int argc, char **argv)
 	config.db_connect_string = NULL;
 	config.sensor_id = "unset";  
 
-	openlog("bandwidthd", LOG_CONS, LOG_DAEMON);
+	openlog("【BandWidthd】", LOG_CONS, LOG_DAEMON);
 	char resolved_path[1024];
     	char resolved_copy[1024];
     	char *INSTALL_DIR = NULL;
@@ -1425,6 +1496,120 @@ void CommitData(time_t timestamp)
 	struct stat StatBuf;
 	char logname1[] = "/tmp/Bandwidthd_html/htdocs/log.1.5.cdf";
 	char logname2[] = "/tmp/Bandwidthd_html/htdocs/log.1.4.cdf";
+	// ========== 所有进程自我监测数据统计活跃度 ==========  
+    // 注意:这段代码在所有进程(父进程和worker子进程)中都会执行  
+    static time_t last_self_check = 0;  
+    static unsigned int last_ipcount = 0;  
+    static int no_activity_count = 0;
+	static unsigned int last_pcap_recv = 0;  // 记录上次的pcap接收包数
+    time_t now = time(NULL);  
+    time_t uptime = now - ProgramStart;  
+      
+    // 不同进程使用不同的检查间隔和超时阈值  
+    time_t check_interval = 60;  // 每1分钟检查一次  
+    time_t warmup_time = 600;    // 启动后10分钟才开始检查  
+    int max_no_activity = 5;     // 连续5次(5分钟)无活动就退出  
+      
+    // 父进程使用更严格的检查  
+    if (config.tag == '1') {  
+        check_interval = 60;     // 每1分钟检查  
+        max_no_activity = 5;     // 5分钟超时  
+    }  
+      
+    if (now - last_self_check >= check_interval) {  
+        last_self_check = now;  
+          
+        // 程序运行超过预热时间后才开始检查  
+        if (uptime > warmup_time) {  
+			// 获取pcap统计信息  
+        	struct pcap_stat ps;  
+        	int pcap_stats_result = pcap_stats(pd, &ps);
+			if (pcap_stats_result == 0) {  
+            // 检查pcap是否在接收数据包  
+            if (ps.ps_recv == last_pcap_recv && last_pcap_recv > 0) {
+                no_activity_count++;  
+                  
+                if (no_activity_count >= max_no_activity) {  
+                    const char *period_names[] = {"每日", "每周", "每月", "每年"};  
+                    int period_index = config.tag - '1';  
+                      
+                    syslog(LOG_CRIT, "%s流量统计进程(tag='%c', PID=%d)连续 %d 分钟没有统计任何IP数据!流量统计已失效。",  
+                           period_names[period_index], config.tag, getpid(),   
+                           no_activity_count * (check_interval / 60));  
+                    // 格式化时间为人类可读格式  
+					char interval_time[64], current_time[64];  
+					struct tm *tm_interval = localtime(&IntervalStart);  
+					struct tm *tm_now = localtime(&now);  
+					strftime(interval_time, sizeof(interval_time), "%Y-%m-%d %H:%M:%S", tm_interval);  
+					strftime(current_time, sizeof(current_time), "%Y-%m-%d %H:%M:%S", tm_now);  
+					syslog(LOG_CRIT, "当前状态: IpCount=%u, 间隔开始时间=%s, 当前时间=%s",    
+       					IpCount, interval_time, current_time); 
+                    syslog(LOG_CRIT, "可能原因: pcap_loop卡死？");  
+                      
+                    // 只有父进程需要清理子进程和HTTP服务器  
+                    if (config.tag == '1') {  
+                        syslog(LOG_CRIT, "父进程准备退出,正在清理所有子进程...");  
+                          
+                        // 1. 终止所有worker子进程  
+                        for (int j = 0; j < NR_WORKER_CHILDS; j++) {  
+                            if (workerchildpids[j] > 0) {  
+                                syslog(LOG_WARNING, "终止Worker子进程 %d (PID=%d)", j, workerchildpids[j]);  
+                                kill(workerchildpids[j], SIGTERM);  
+                            }  
+                        }  
+                          
+                        // 2. 终止HTTP服务器进程(如果存在)  
+                        FILE *http_pidfile = fopen("/var/run/bandwidthd_http.pid", "r");  
+						if (http_pidfile) {  
+    						pid_t http_pid;  
+    						if (fscanf(http_pidfile, "%d", &http_pid) == 1) {  
+        						syslog(LOG_WARNING, "终止HTTP服务器进程 (PID=%d)", http_pid);  
+        						kill(http_pid, SIGTERM);  
+    						}  
+    						fclose(http_pidfile);  
+    						unlink("/var/run/bandwidthd_http.pid");  
+						}  
+                          
+                        // 3. 等待子进程退出  
+                        sleep(2);  
+                        for (int j = 0; j < NR_WORKER_CHILDS; j++) {  
+                            if (workerchildpids[j] > 0) {  
+                                waitpid(workerchildpids[j], NULL, WNOHANG);  
+                            }  
+                        }  
+                    } else {  
+                        // Worker子进程只需要清理自己的资源  
+                        syslog(LOG_CRIT, "%s流量统计进程退出,等待重启",   
+                               period_names[period_index]);  
+                    }  
+                      
+                    // 清理pcap资源  
+                    if (pd) {  
+                        pcap_close(pd);  
+                    }  
+                      
+                    syslog(LOG_CRIT, "%s流量统计进程因连续无流量数据统计而退出",   
+                           period_names[period_index]);  
+                    exit(1);  // 使用exit而不是_exit,确保清理完成  
+                }  
+            } else if (ps.ps_recv > last_pcap_recv) {  
+                // pcap正在接收数据包,即使IpCount为0也是正常的(可能是非监控子网的流量)  
+                no_activity_count = 0;  
+                // syslog(LOG_DEBUG, "pcap正常工作: 接收了 %u 个新数据包, 但IpCount=%u (可能是非监控子网流量)", ps.ps_recv - last_pcap_recv, IpCount);  
+            }  
+              
+            last_pcap_recv = ps.ps_recv;   
+        } else {  
+            // pcap_stats失败,这本身就是一个问题  
+            syslog(LOG_ERR, "无法获取pcap统计信息: %s", pcap_geterr(pd));  
+            no_activity_count++;  
+        }  
+          
+        last_ipcount = IpCount;  
+    	}  
+	} 
+    // ========== 自我监测代码结束 ==========
+		
 	// ========== 每日周月年Worker子进程健康监测 ==========  
     // 只在主进程（tag='1'）中执行监测  
     if (config.tag == '1') {  
@@ -1535,171 +1720,7 @@ void CommitData(time_t timestamp)
                 }    
             }  
             }  
-        }  
-          
-        // ========== 新增：CDF文件写入监测 ==========  
-        // 检查各个worker的CDF文件是否正常更新  
-        static time_t last_cdf_check = 0;  
-        if (config.output_cdf && now - last_cdf_check >= 300) {  // 每5分钟检查一次  
-            last_cdf_check = now;  
-              
-            char cdf_files[4][64] = {  
-                "/tmp/Bandwidthd_html/htdocs/log.1.0.cdf",  // 日统计  
-                "/tmp/Bandwidthd_html/htdocs/log.2.0.cdf",  // 周统计  
-                "/tmp/Bandwidthd_html/htdocs/log.3.0.cdf",  // 月统计  
-                "/tmp/Bandwidthd_html/htdocs/log.4.0.cdf"   // 年统计  
-            };  
-              
-            time_t expected_intervals[4] = {  
-                200,      // 日 200 秒
-        		600,      // 周 600 秒
-        		3600,     // 月 3600 秒
-        		43200     // 年 43200 秒  
-            };  
-            const char *periods[4] = {  
-        		"每日流量统计",  
-        		"每周流量统计",  
-        		"每月流量统计",  
-        		"每年流量统计"  
-    		};
-			// 各统计周期最大等待时间（单位：秒）
-    		time_t max_timeout[4] = {
-        		300,     // 日：预期200秒最多等5分钟
-        		1800,    // 周：预期10分钟最多等半小时
-        		7200,    // 月：预期1小时最多等2小时
-        		86400    // 年：预期12小时最多等24小时
-    		};
-			// 新增:计算程序运行时间  
-    		time_t uptime = now - ProgramStart;
-            for (int i = 0; i < 4; i++) {    
-        		struct stat st;  
-        		if (stat(cdf_files[i], &st) == 0) {    
-            		time_t file_age = now - st.st_mtime;
-					// 智能格式化时间输出函数  
-            		char age_str[64], expected_str[64];  
-
-            		if (file_age >= 3600)    
-                		snprintf(age_str, sizeof(age_str), "%.1f 小时", (double)file_age / 3600.0);    
-            		else if (file_age >= 60)    
-                		snprintf(age_str, sizeof(age_str), "%ld 分钟", file_age / 60);  
-            		else    
-                		snprintf(age_str, sizeof(age_str), "%ld 秒", file_age);  
-  
-            		if (expected_intervals[i] >= 3600)    
-                		snprintf(expected_str, sizeof(expected_str), "%.1f 小时", (double)expected_intervals[i] / 3600.0);    
-            		else if (expected_intervals[i] >= 60)    
-                		snprintf(expected_str, sizeof(expected_str), "%ld 分钟", expected_intervals[i] / 60);    
-            		else    
-                		snprintf(expected_str, sizeof(expected_str), "%ld 秒", expected_intervals[i]);
-              
-            		// 超时判断：在程序运行时间超过预期间隔后只要超过最大等待时间就认为挂了
-            		if (uptime > expected_intervals[i] && file_age > max_timeout[i]) {     
-                		syslog(LOG_ERR, "%s CDF文件 %s 已超过%s未更新（预期更新间隔 %s），准备重启对应进程",   
-                       		periods[i], cdf_files[i], age_str, expected_str);    
-                  
-                		// 修复:区分父进程和worker子进程  
-                		if (i == 0) {  
-                    		// i=0 是父进程(每日统计),不能重启自己,只记录严重错误  
-                    		syslog(LOG_CRIT, "严重错误: 父进程(每日统计)的CDF文件长时间未更新,准备终止所有进程!");
-							// 终止所有worker子进程  
-    						for (int j = 0; j < NR_WORKER_CHILDS; j++) {  
-        						if (workerchildpids[j] > 0) {  
-            						syslog(LOG_WARNING, "终止子进程 %d (PID=%d)", j, workerchildpids[j]);  
-            						kill(workerchildpids[j], SIGTERM);  
-        						}  
-    						} 
-							FILE *http_pidfile = fopen("/var/run/bandwidthd_http.pid", "r");  
-							if (http_pidfile) {  
-    							pid_t http_pid;  
-    							if (fscanf(http_pidfile, "%d", &http_pid) == 1) {  
-        							syslog(LOG_WARNING, "终止HTTP服务器进程 (PID=%d)", http_pid);  
-        							kill(http_pid, SIGTERM);  
-    							}  
-    							fclose(http_pidfile);  
-    							unlink("/var/run/bandwidthd_http.pid");  
-							}
-							 // 等待所有子进程退出  
-    						sleep(2);  
-    						for (int j = 0; j < NR_WORKER_CHILDS; j++) {  
-        						if (workerchildpids[j] > 0) {  
-            						waitpid(workerchildpids[j], NULL, WNOHANG);  
-        						}  
-    						}  
-      					
-    						// syslog(LOG_CRIT, "父进程因CDF文件长时间未更新而退出,程序终止");  
-    						exit(1);  // 退出整个程序
-                		} else if (workerchildpids[i-1] > 0) {  
-                    		syslog(LOG_WARNING, "强制终止并重启%s子进程 (PID=%d)",   
-                           		periods[i], workerchildpids[i-1]); 
-                      
-                    		// 强制终止旧进程  
-                    		kill(workerchildpids[i-1], SIGKILL);  
-                    		waitpid(workerchildpids[i-1], NULL, 0);  
-                      
-                    		// 重新fork worker子进程    
-                    		pid_t new_pid = fork();    
-                        
-                    		if (new_pid == 0) {    
-                        		// 子进程：重新配置并继续执行    
-                        		setchildconfig(i);    
-                        		syslog(LOG_INFO, "%s子进程因CDF文件长时间未更新而重启", periods[i]);    
-                            
-                        		// 子进程需要重新初始化pcap    
-                        		char Error[PCAP_ERRBUF_SIZE];    
-                        		pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);    
-                        		if (pd == NULL) {    
-                            		syslog(LOG_ERR, "%s子进程重启失败: %s", periods[i], Error);    
-                            		_exit(1);    
-                        		}    
-                            
-                        		struct bpf_program fcode;    
-                        		if (pcap_compile(pd, &fcode, config.filter, 1, 0) < 0) {    
-                            		syslog(LOG_ERR, "%s子进程pcap编译失败: %s", periods[i], pcap_geterr(pd));    
-                            		_exit(1);    
-                        		}    
-                            
-                        		if (pcap_setfilter(pd, &fcode) < 0) {    
-                            		syslog(LOG_ERR, "%s子进程pcap过滤器设置失败: %s", periods[i], pcap_geterr(pd));     
-                            		_exit(1);    
-                        		}    
-                          
-                        		pcap_freecode(&fcode);  
-                            
-                        		// 恢复CDF数据（如果配置了）    
-                        		if (config.recover_cdf) {    
-                            		RecoverDataFromCDF();    
-                        		}    
-                            
-                        		// 重置间隔开始时间  
-                        		IntervalStart = time(NULL);    
-                          
-                        		// 注册信号处理  
-                        		signal(SIGHUP, signal_handler);  
-                        		signal(SIGTERM, signal_handler);  
-                        		signal(SIGCHLD, signal_handler);  
-                          
-                        		// 子进程继续执行pcap_loop    
-                        		if (pcap_loop(pd, -1, PacketCallback, NULL) < 0) {    
-                            		syslog(LOG_ERR, "%s子进程pcap_loop失败: %s", periods[i], pcap_geterr(pd));    
-                            		_exit(1);    
-                        		}    
-                            
-                        		pcap_close(pd);    
-                        		_exit(0);    
-                    		} else if (new_pid > 0) {    
-                        		// 父进程：更新PID记录    
-                        		workerchildpids[i-1] = new_pid;    
-                        		syslog(LOG_INFO, "%s子进程因CDF未更新重启成功，新PID=%d", periods[i], new_pid);    
-                    		} else {    
-                        		// fork失败    
-                        		syslog(LOG_ERR, "重启%s子进程失败: fork返回-1: %s", periods[i], strerror(errno));    
-		                        workerchildpids[i-1] = 0;    
-                    		}  
-                		}  
-            		}    
-        		}    
-    		}    
-        }  
+        }    
     }  
     // ========== 健康监测代码结束 ==========
 	// Set the timestamps
