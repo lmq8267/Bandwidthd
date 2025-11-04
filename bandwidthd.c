@@ -41,7 +41,10 @@ time_t IntervalStart;
 time_t ProgramStart;
 int RotateLogs = FALSE;
 static int http_server_fd = -1;
-    
+// 看门狗机制全局变量  
+static volatile time_t last_packet_time = 0;  
+static volatile sig_atomic_t watchdog_enabled = 0;
+
 struct SubnetData SubnetTable[SUBNET_NUM];
 struct IPData IpTable[IP_NUM];
 
@@ -153,6 +156,62 @@ void signal_handler(int sig)
 			break;  
 		}
 	}
+
+void pcap_watchdog_handler(int sig)  
+{  
+    time_t now = time(NULL);  
+    time_t silence_duration = now - last_packet_time;  
+      
+    // 如果看门狗启用且超过5分钟没有收到数据包  
+    if (watchdog_enabled && silence_duration > 300) {  
+        // 检查 pcap 是否真的卡死，还是只是没有流量  
+        struct pcap_stat ps;  
+        static unsigned int last_ps_recv = 0;  
+          
+        if (pcap_stats(pd, &ps) == 0) {  
+            // 如果 pcap 统计数据在增长，说明 pcap 正常工作，只是没有匹配的流量  
+            if (ps.ps_recv > last_ps_recv) {  
+                // pcap 正常工作，只是没有监控子网的流量  
+                last_ps_recv = ps.ps_recv;  
+                alarm(60);  
+                return;  
+            }  
+              
+            // 如果 ps_recv 没有增长，可能是真的卡死了  
+            // 但也可能是网络接口真的没有任何数据包（包括非IP包）  
+            // 这种情况下，我们需要更保守的判断  
+              
+            const char *period_names[] = {"每日", "每周", "每月", "每年"};  
+            int period_index = config.tag - '1';  
+              
+            syslog(LOG_WARNING, "%s流量统计进程在过去 %ld 秒内未收到任何数据包 (pcap统计: 接收=%u, 丢弃=%u, 接口丢弃=%u)", period_names[period_index], silence_duration, ps.ps_recv, ps.ps_drop, ps.ps_ifdrop);
+       
+            // 只有在 pcap_stats 也无法获取或者时间超过更长阈值（如15分钟）时才认为卡死  
+            if (silence_duration > 900) {  // 15分钟  
+                syslog(LOG_CRIT, "%s流量统计进程 pcap_loop 可能已卡死，尝试重新初始化",   
+                       period_names[period_index]);  
+                  
+                if (pd) {  
+                    pcap_breakloop(pd);  
+                }  
+            }  
+              
+            last_ps_recv = ps.ps_recv;  
+        } else {  
+            // pcap_stats 失败，这本身就是一个问题  
+            syslog(LOG_ERR, "无法获取 pcap 统计信息: %s，可能 pcap 已卡死", pcap_geterr(pd));  
+              
+            if (pd) {  
+                pcap_breakloop(pd);  
+            }  
+        }  
+          
+        alarm(60);  
+    } else {  
+        // 正常情况，重置定时器  
+        alarm(60);  
+    }  
+}
 
 void bd_CollectingData(char *filename)
 	{
@@ -904,9 +963,17 @@ int main(int argc, char **argv)
 		fclose(stderr);
 		}
 
+	// 初始化看门狗  
+    last_packet_time = time(NULL);  
+    watchdog_enabled = 1; 
+		
 	signal(SIGHUP, signal_handler);
 	signal(SIGTERM, signal_handler);
 	signal(SIGCHLD, signal_handler);
+	signal(SIGALRM, pcap_watchdog_handler);  // 注册看门狗信号处理
+
+	// 启动看门狗定时器（每60秒检查一次）  
+    alarm(60);
 
 	if (IPDataStore)  // If there is data in the datastore draw some initial graphs
 		{
@@ -914,17 +981,63 @@ int main(int argc, char **argv)
 		WriteOutWebpages(IntervalStart+config.interval);
 		}
 
-    if (pcap_loop(pd, -1, PacketCallback, pcap_userdata) < 0) {
-        syslog(LOG_ERR, "Bandwidthd: pcap_loop: %s",  pcap_geterr(pd));
-        exit(1);
-        }
-
-    pcap_close(pd);
-    exit(0);        
+    int pcap_result;   
+      
+    while (1) {  
+        pcap_result = pcap_loop(pd, -1, PacketCallback, pcap_userdata);  
+          
+        if (pcap_result == -2) {  
+            // pcap_breakloop 被看门狗调用  
+            const char *period_names[] = {"每日", "每周", "每月", "每年"};  
+            int period_index = config.tag - '1';  
+              
+            syslog(LOG_CRIT, "%s流量统计进程 pcap_loop 被看门狗中断，尝试重新初始化...",   
+                   period_names[period_index]);  
+              
+            // 关闭并重新打开 pcap  
+            pcap_close(pd);  
+            pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);  
+            if (pd == NULL) {  
+                syslog(LOG_ERR, "重新初始化 pcap 失败: %s", Error);  
+                exit(1);  
+            }  
+              
+            // 重新应用过滤器  
+            if (pcap_compile(pd, &fcode, config.filter, 1, 0) < 0) {  
+                syslog(LOG_ERR, "重新编译过滤器失败: %s", pcap_geterr(pd));  
+                exit(1);  
+            }  
+              
+            if (pcap_setfilter(pd, &fcode) < 0) {  
+                syslog(LOG_ERR, "重新应用过滤器失败: %s", pcap_geterr(pd));  
+                exit(1);  
+            }  
+              
+            // 重置看门狗时间戳  
+            last_packet_time = time(NULL);  
+            syslog(LOG_INFO, "%s流量统计进程 pcap 重新初始化成功，继续捕获数据包",   
+                   period_names[period_index]);  
+              
+            // 继续循环  
+            continue;  
+        } else if (pcap_result < 0) {  
+            // 其他错误  
+            syslog(LOG_ERR, "Bandwidthd: pcap_loop 错误: %s", pcap_geterr(pd));  
+            exit(1);  
+        } else {  
+            // pcap_loop 正常退出（不应该发生）  
+            break;  
+        }  
+    }  
+  
+    pcap_close(pd);  
+    exit(0);;        
     }
    
 void PacketCallback(u_char *user, const struct pcap_pkthdr *h, const u_char *p)
     {
+	// 更新看门狗时间戳  
+    last_packet_time = time(NULL); 
     unsigned int counter;
 
     u_int caplen = h->caplen;
@@ -1696,15 +1809,46 @@ void CommitData(time_t timestamp)
                     // 注册信号处理  
                     signal(SIGHUP, signal_handler);  
                     signal(SIGTERM, signal_handler);  
-                    signal(SIGCHLD, signal_handler);  
+                    signal(SIGCHLD, signal_handler);
+					signal(SIGALRM, pcap_watchdog_handler);  // 添加看门狗信号
+
+					// 初始化看门狗  
+                    last_packet_time = time(NULL);  
+                    watchdog_enabled = 1;  
+                    alarm(60);  // 启动看门狗定时器
                       
                      syslog(LOG_INFO, "%s子进程重启完成，开始捕获数据包", period); 
                       
-                    // 子进程继续执行pcap_loop    
-                    if (pcap_loop(pd, -1, PacketCallback, NULL) < 0) {    
-                        syslog(LOG_ERR, "Worker子进程pcap_loop失败: %s", pcap_geterr(pd));    
-                        _exit(1);    
-                    }    
+                    // 子进程继续执行pcap_loop（需要使用相同的循环逻辑）  
+                    int pcap_result;  
+                    while (1) {  
+                        pcap_result = pcap_loop(pd, -1, PacketCallback, NULL);  
+                          
+                        if (pcap_result == -2) {  
+                            // 看门狗中断，尝试重新初始化  
+                            syslog(LOG_WARNING, "%s子进程 pcap_loop 被看门狗中断，重新初始化", period);  
+                            pcap_close(pd);  
+                            pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);  
+                            if (pd == NULL) {  
+                                syslog(LOG_ERR, "%s子进程重新初始化失败: %s", period, Error);  
+                                _exit(1);  
+                            }  
+                              
+                            struct bpf_program fcode_new;  
+                            if (pcap_compile(pd, &fcode_new, config.filter, 1, 0) < 0 ||  
+                                pcap_setfilter(pd, &fcode_new) < 0) {  
+                                syslog(LOG_ERR, "%s子进程重新应用过滤器失败", period);  
+                                _exit(1);  
+                            }  
+                            pcap_freecode(&fcode_new);  
+                              
+                            last_packet_time = time(NULL);  
+                            continue;  
+                        } else if (pcap_result < 0) {  
+                            syslog(LOG_ERR, "%s子进程 pcap_loop 失败: %s", period, pcap_geterr(pd));  
+                            _exit(1);  
+                        }  
+                    }   
                         
                     pcap_close(pd);    
                     _exit(0);    
