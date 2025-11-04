@@ -7,6 +7,8 @@
 #ifdef HAVE_LIBPQ
 #include <libpq-fe.h>
 #endif
+#include <errno.h> 
+#include <sys/statvfs.h>
 
 // We must call regular exit to write out profile data, but child forks are supposed to usually
 // call _exit?
@@ -162,7 +164,10 @@ int WriteOutWebpages(time_t timestamp)
 	int Counter;
 
 	/* Did we catch any packets since last time? */
-	if (!DataStore) return -1;
+	if (!DataStore) {  
+        syslog(LOG_WARNING, "没有数据存储，跳过图表生成");  
+        return -1;  
+    }
 
 	// break off from the main line so we don't miss any packets while we graph
 	graphpid = fork();
@@ -180,12 +185,19 @@ int WriteOutWebpages(time_t timestamp)
           	signal(SIGHUP, SIG_IGN);
 			
     	    nice(4); // reduce priority so I don't choke out other tasks
-
+				
+			// time_t start_time = time(NULL); 
 			// Count Number of IP's in datastore
 			for (DataStore = IPDataStore, Counter = 0; DataStore; Counter++, DataStore = DataStore->Next);
+				
+				// syslog(LOG_INFO, "绘图子进程开始 (tag='%c'): 总共 %d 个IP需要处理", config.tag, Counter);
 
 			// +1 because we don't want to accidently allocate 0
 			SummaryData = malloc(sizeof(struct SummaryData *)*Counter+1);
+			if (!SummaryData) {  
+                syslog(LOG_ERR, "绘图子进程内存分配失败");  
+                _exit(1);  
+            }
 
 			DataStore = IPDataStore;
 			while (DataStore) // Is not null
@@ -193,6 +205,15 @@ int WriteOutWebpages(time_t timestamp)
 				if (DataStore->FirstBlock->NumEntries > 0)
 					{
 					SummaryData[NumGraphs] = (struct SummaryData *) malloc(sizeof(struct SummaryData));
+					if (!SummaryData[NumGraphs]) {  
+                        syslog(LOG_ERR, "绘图子进程SummaryData分配失败");  
+                        // 释放已分配的内存  
+                        for (int j = 0; j < NumGraphs; j++) {  
+                            free(SummaryData[j]);  
+                        }  
+                        free(SummaryData);  
+                        _exit(1);  
+                    }
 					GraphIp(DataStore, SummaryData[NumGraphs++], timestamp+LEAD*config.range);
 					}
 			    DataStore = DataStore->Next;
@@ -204,6 +225,8 @@ int WriteOutWebpages(time_t timestamp)
 				free(SummaryData[Counter]);  
 			}  
 			free(SummaryData);
+			// time_t end_time = time(NULL);  
+    		// syslog(LOG_INFO, "绘图子进程完成 (tag='%c'): 生成了 %d 个图表, 耗时 %ld 秒", config.tag, NumGraphs, end_time - start_time);
 	
 			_exit(0);
 			}
@@ -222,6 +245,8 @@ int WriteOutWebpages(time_t timestamp)
 
 void setchildconfig (int level) {
 	static unsigned long long graph_cutoff;
+	static int output_cdf_saved;  // 保存output_cdf配置  
+	static int recover_cdf_saved; // 保存recover_cdf配置
 
 	switch (level) {
 		case 0:
@@ -229,6 +254,8 @@ void setchildconfig (int level) {
 			config.interval = INTERVAL1;
 			config.tag = '1';
 			graph_cutoff = config.graph_cutoff;
+			output_cdf_saved = config.output_cdf;    // 保存配置  
+			recover_cdf_saved = config.recover_cdf;  // 保存配置
 		break;
 		case 1:
 			// Overide skip_intervals for children
@@ -237,6 +264,8 @@ void setchildconfig (int level) {
 			config.interval = INTERVAL2;
 			config.tag = '2';
 			config.graph_cutoff = graph_cutoff*(RANGE2/RANGE1);	
+			config.output_cdf = output_cdf_saved;    // 恢复配置  
+			config.recover_cdf = recover_cdf_saved;  // 恢复配置
 		break;
 		case 2:
 			// Overide skip_intervals for children
@@ -245,6 +274,8 @@ void setchildconfig (int level) {
 			config.interval = INTERVAL3;
 			config.tag = '3';
 			config.graph_cutoff = graph_cutoff*(RANGE3/RANGE1);
+			config.output_cdf = output_cdf_saved;    // 恢复配置  
+			config.recover_cdf = recover_cdf_saved;  // 恢复配置
 		break;
 		case 3:
 			// Overide skip_intervals for children
@@ -253,12 +284,51 @@ void setchildconfig (int level) {
 			config.interval = INTERVAL4;
 			config.tag = '4';
 			config.graph_cutoff = graph_cutoff*(RANGE4/RANGE1);
+			config.output_cdf = output_cdf_saved;    // 恢复配置  
+			config.recover_cdf = recover_cdf_saved;  // 恢复配置
 		break;
 
 		default:
 			syslog(LOG_ERR, "setchildconfig 收到了一个无效的 level 参数: %d", level);
 			_exit(1);
 	}
+	// 新增:记录配置状态用于调试
+	int tagnum = (config.tag >= '0' && config.tag <= '9') ? (config.tag - '0') : (int)config.tag;
+    const char *period_str = "未知周期";
+    switch (tagnum) {
+        case 1: period_str = "主进程每日流量统计"; break;
+        case 2: period_str = "子进程每周流量统计"; break;
+        case 3: period_str = "子进程每月流量统计"; break;
+        case 4: period_str = "子进程每年流量统计"; break;
+        default: period_str = "未知周期"; break;
+    }
+	char extra[128];
+    extra[0] = '\0';
+    if (config.output_cdf == 1) {
+        strncat(extra, "已开启流量数据保存到CDF ", sizeof(extra) - strlen(extra) - 1);
+    }
+    if (config.recover_cdf == 1) {
+        strncat(extra, "已开启从CDF恢复流量数据记录", sizeof(extra) - strlen(extra) - 1);
+    }
+
+    /* 计算并格式化 interval 显示：小于 3600 秒显示为分钟，否则显示为小时 */
+    unsigned long long interval = (unsigned long long) config.interval;
+    char interval_str[64];
+    if (interval < 3600ULL) {
+        unsigned long long minutes = interval / 60ULL;
+        if (minutes == 0ULL) minutes = 1ULL; /* 如果小于 60 秒，显示为 1 分钟以便更友好 */
+        snprintf(interval_str, sizeof(interval_str), "%llu 分钟", minutes);
+    } else {
+        unsigned long long hours = interval / 3600ULL;
+        snprintf(interval_str, sizeof(interval_str), "%llu 小时", hours);
+    }
+
+    /* 输出最终日志：如果 tag 属于 1-4（即我们识别的周期），使用中文说明 */
+    if (tagnum >= 1 && tagnum <= 4) {
+        /* 注意 extra 可能为空字符串，如果为空则结果中不会包含额外说明内容 */
+        syslog(LOG_INFO, "%s，%s，更新间隔 %s", period_str, extra, interval_str);
+    }
+	
 }
 
 void makepidfile(pid_t pid) 
@@ -282,6 +352,7 @@ void makepidfile(pid_t pid)
 	}
 
 // 启动 HTTP 服务函数（后台运行）
+pid_t http_server_pid = 0;  // 记录HTTP服务器PID
 void start_http_server(int port) {
     pid_t pid = fork();
     if (pid < 0) {
@@ -297,7 +368,13 @@ void start_http_server(int port) {
         syslog(LOG_ERR, "无法 fork HTTP 孙子进程");  
         _exit(1);  
     } else if (pid > 0) {  
-        // First child exits immediately, orphaning second child  
+        // First child exits immediately, orphaning second child 
+		// 在第一个子进程退出前,将孙子进程PID写入文件  
+        FILE *pidfile = fopen("/var/run/bandwidthd_http.pid", "w");  
+        if (pidfile) {  
+            fprintf(pidfile, "%d\n", pid);  
+            fclose(pidfile);  
+        }
         _exit(0);  
     }
 
@@ -649,6 +726,46 @@ int main(int argc, char **argv)
 				/* i--; ..to retry? -> possible infinite loop */
 				continue;
 				}
+			// 验证子进程是否成功启动  
+    		if (workerchildpids[i] > 0) {
+    			char msg[128];
+    			char tagdesc[32];
+    			char tagchar = '2' + i;   // 原逻辑中的 tag 值
+
+    			// 根据 tag 映射中文描述
+    			switch (tagchar) {
+        			case '1':
+            			strcpy(tagdesc, "每日流量统计");
+            			break;
+        			case '2':
+            			strcpy(tagdesc, "每周流量统计");
+            			break;
+        			case '3':
+            			strcpy(tagdesc, "每月流量统计");
+            			break;
+        			case '4':
+            			strcpy(tagdesc, "每年流量统计");
+            			break;
+        			default:
+            			snprintf(tagdesc, sizeof(tagdesc), "未知(tag='%c')", tagchar);
+            			break;
+    			}
+    			syslog(LOG_INFO, "%s子进程创建成功，PID=%d", tagdesc, workerchildpids[i]);
+				}
+
+			}
+			// 验证所有worker子进程是否都成功创建  
+			if (config.tag == '1') {  // 只在父进程中检查  
+    			int failed_workers = 0;  
+    			for (i=0; i<NR_WORKER_CHILDS; i++) {  
+        			if (workerchildpids[i] <= 0) {  
+            			failed_workers++;  
+            			syslog(LOG_ERR, "流量统计子进程 %d 创建失败", i);  
+        			}  
+    			}  
+    			if (failed_workers > 0) {  
+        			syslog(LOG_WARNING, "有 %d 个流量统计子进程创建失败，周/月/年统计可能不完整", failed_workers);  
+    			}  
 			}
 
 	    if(config.recover_cdf)
@@ -656,7 +773,7 @@ int main(int argc, char **argv)
 		}	
 
     IntervalStart = time(NULL);
-	syslog(LOG_INFO, "正在检测 %s 接口", config.dev);	
+	// syslog(LOG_INFO, "正在检测 %s 接口", config.dev);	
 	pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);
         if (pd == NULL) 
 			{
@@ -722,7 +839,7 @@ int main(int argc, char **argv)
 
 	if (IPDataStore)  // If there is data in the datastore draw some initial graphs
 		{
-		syslog(LOG_INFO, "绘制初始图表");
+		// syslog(LOG_INFO, "绘制初始图表");
 		WriteOutWebpages(IntervalStart+config.interval);
 		}
 
@@ -1151,16 +1268,60 @@ void StoreIPDataInCDF(struct IPData IncData[])
 
    	cdf = fopen(logfile, "at");
 
+	// 添加错误处理  
+    if (!cdf) {  
+        syslog(LOG_ERR, "无法打开CDF文件 %s 进行写入: %s", logfile, strerror(errno));  
+
+		// 检查磁盘空间  
+        struct statvfs vfs;  
+        if (statvfs("/tmp", &vfs) == 0) {  
+                unsigned long long free_bytes = (unsigned long long)vfs.f_bavail * vfs.f_bsize;  
+                syslog(LOG_ERR, "/tmp 分区剩余空间: %llu MB", free_bytes / (1024 * 1024));  
+        }
+          
+        // 尝试创建目录  
+        mkdir("/tmp", 0755);  
+        mkdir("/tmp/Bandwidthd_html", 0755);  
+        mkdir("/tmp/Bandwidthd_html/htdocs", 0755);  
+          
+        // 再次尝试打开  
+        cdf = fopen(logfile, "at");  
+        if (!cdf) {  
+            syslog(LOG_ERR, "重试后仍无法打开CDF文件 %s", logfile);  
+            return;  // 不要退出进程，只是跳过这次写入  
+        }  
+    }
+
 	for (counter=0; counter < IpCount; counter++)
 		{
 		IPData = &IncData[counter];
 		HostIp2CharIp(IPData->ip, IPBuffer);
-		fprintf(cdf, "%s,%lld,", IPBuffer, (long long)IPData->timestamp);
+		if (fprintf(cdf, "%s,%lld,", IPBuffer, (long long)IPData->timestamp) < 0) {  
+            syslog(LOG_ERR, "CDF写入失败 (tag='%c'): %s", config.tag, strerror(errno));  
+            fclose(cdf);  
+            return;  
+        } 
 		Stats = &(IPData->Send);
-		fprintf(cdf, "%llu,%llu,%llu,%llu,%llu,%llu,%llu,", Stats->total, Stats->icmp, Stats->udp, Stats->tcp, Stats->ftp, Stats->http, Stats->p2p); 
+		if (fprintf(cdf, "%llu,%llu,%llu,%llu,%llu,%llu,%llu,",   
+                    Stats->total, Stats->icmp, Stats->udp, Stats->tcp,   
+                    Stats->ftp, Stats->http, Stats->p2p) < 0) {  
+            syslog(LOG_ERR, "CDF写入失败 (tag='%c'): %s", config.tag, strerror(errno));  
+            fclose(cdf);  
+            return;  
+        } 
 		Stats = &(IPData->Receive);
-		fprintf(cdf, "%llu,%llu,%llu,%llu,%llu,%llu,%llu\n", Stats->total, Stats->icmp, Stats->udp, Stats->tcp, Stats->ftp, Stats->http, Stats->p2p); 		
+		if (fprintf(cdf, "%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",   
+                    Stats->total, Stats->icmp, Stats->udp, Stats->tcp,   
+                    Stats->ftp, Stats->http, Stats->p2p) < 0) {  
+            syslog(LOG_ERR, "CDF写入失败 (tag='%c'): %s", config.tag, strerror(errno));  
+            fclose(cdf);  
+            return;  
+        }		
 		}
+	// 确保数据写入磁盘  
+    if (fflush(cdf) != 0) {  
+        syslog(LOG_ERR, "CDF刷新失败 (tag='%c'): %s", config.tag, strerror(errno));  
+    }
 	fclose(cdf);
 	}
 
@@ -1187,7 +1348,8 @@ void _StoreIPDataInRam(struct IPData *IPData)
         if (!IPDataStore->FirstBlock || ! IPDataStore->FirstBlock->Data)
             {
             syslog(LOG_ERR, "无法分配数据存储！正在退出！");
-            exit(1);
+            // exit(1);
+			return;
             }
 		}
 
@@ -1263,6 +1425,283 @@ void CommitData(time_t timestamp)
 	struct stat StatBuf;
 	char logname1[] = "/tmp/Bandwidthd_html/htdocs/log.1.5.cdf";
 	char logname2[] = "/tmp/Bandwidthd_html/htdocs/log.1.4.cdf";
+	// ========== 每日周月年Worker子进程健康监测 ==========  
+    // 只在主进程（tag='1'）中执行监测  
+    if (config.tag == '1') {  
+        static time_t last_worker_check = 0;  
+        time_t now = time(NULL);  
+          
+        // 每60秒检查一次worker子进程状态  
+        if (now - last_worker_check >= 60) {  
+            last_worker_check = now;  
+              
+            for (int i = 0; i < NR_WORKER_CHILDS; i++) {    
+            int need_restart = 0;  
+
+			// 根据 i 映射子进程的 tag（2=每周，3=每月，4=每年）
+            char tagchar = '2' + i;
+            const char *period = "未知";
+            switch (tagchar) {
+                case '2': period = "每周流量统计"; break;
+                case '3': period = "每月流量统计"; break;
+                case '4': period = "每年流量统计"; break;
+                default:  period = "未知类型"; break;
+            }
+            // 检查进程是否存在  
+            if (workerchildpids[i] > 0) {  
+                if (kill(workerchildpids[i], 0) == -1) {    
+                    if (errno == ESRCH) {    
+                        need_restart = 1;  
+                        syslog(LOG_ERR, "检测到%s子进程 (PID=%d) 已退出", period, workerchildpids[i]);    
+                    }  
+                }  
+            } else {  
+                // PID 为 0 或负数,说明之前创建失败  
+                need_restart = 1;  
+                syslog(LOG_ERR, "%s子进程 PID 无效，需要重启", period);  
+            }  
+              
+            if (need_restart) {  
+                // 清理可能的僵尸进程  
+                if (workerchildpids[i] > 0) {  
+                    waitpid(workerchildpids[i], NULL, WNOHANG);  
+                }  
+                  
+                // 重新fork worker子进程    
+                pid_t new_pid = fork();    
+                    
+                if (new_pid == 0) {    
+                    // 子进程：重新配置  
+                    setchildconfig(i + 1);    
+                    syslog(LOG_INFO, "%s子进程正在重启", period);     
+                        
+                    // 重新初始化pcap  
+                    char Error[PCAP_ERRBUF_SIZE];    
+                    pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);    
+                    if (pd == NULL) {    
+                        syslog(LOG_ERR, "%s子进程重启失败：pcap_open_live: %s", period, Error);   
+                        _exit(1);    
+                    }    
+                        
+                    struct bpf_program fcode;    
+                    if (pcap_compile(pd, &fcode, config.filter, 1, 0) < 0) {    
+                         syslog(LOG_ERR, "%s子进程重启失败：pcap_compile: %s",
+                               period, pcap_geterr(pd));    
+                        pcap_close(pd);  
+                        _exit(1);    
+                    }    
+                        
+                    if (pcap_setfilter(pd, &fcode) < 0) {    
+                        syslog(LOG_ERR, "%s子进程重启失败：pcap_setfilter: %s",
+                               period, pcap_geterr(pd));    
+                        pcap_close(pd);  
+                        _exit(1);    
+                    }    
+                      
+                    pcap_freecode(&fcode);  
+                        
+                    // 恢复CDF数据  
+                    if (config.recover_cdf) {    
+                        RecoverDataFromCDF();    
+                    }    
+                        
+                    // 重置间隔开始时间  
+                    IntervalStart = time(NULL);    
+                      
+                    // 注册信号处理  
+                    signal(SIGHUP, signal_handler);  
+                    signal(SIGTERM, signal_handler);  
+                    signal(SIGCHLD, signal_handler);  
+                      
+                     syslog(LOG_INFO, "%s子进程重启完成，开始捕获数据包", period); 
+                      
+                    // 子进程继续执行pcap_loop    
+                    if (pcap_loop(pd, -1, PacketCallback, NULL) < 0) {    
+                        syslog(LOG_ERR, "Worker子进程pcap_loop失败: %s", pcap_geterr(pd));    
+                        _exit(1);    
+                    }    
+                        
+                    pcap_close(pd);    
+                    _exit(0);    
+                } else if (new_pid > 0) {    
+                    // 父进程：更新PID记录    
+                    workerchildpids[i] = new_pid;    
+                    syslog(LOG_INFO, "%s子进程重启成功，新PID=%d", period, new_pid);    
+                } else {    
+                    // fork失败    
+                     syslog(LOG_ERR, "重启%s子进程失败：fork返回-1：%s",
+                           period, strerror(errno));   
+                    workerchildpids[i] = 0;  // 标记为失败,下次继续尝试  
+                }    
+            }  
+            }  
+        }  
+          
+        // ========== 新增：CDF文件写入监测 ==========  
+        // 检查各个worker的CDF文件是否正常更新  
+        static time_t last_cdf_check = 0;  
+        if (config.output_cdf && now - last_cdf_check >= 300) {  // 每5分钟检查一次  
+            last_cdf_check = now;  
+              
+            char cdf_files[4][64] = {  
+                "/tmp/Bandwidthd_html/htdocs/log.1.0.cdf",  // 日统计  
+                "/tmp/Bandwidthd_html/htdocs/log.2.0.cdf",  // 周统计  
+                "/tmp/Bandwidthd_html/htdocs/log.3.0.cdf",  // 月统计  
+                "/tmp/Bandwidthd_html/htdocs/log.4.0.cdf"   // 年统计  
+            };  
+              
+            time_t expected_intervals[4] = {  
+                200,      // 日 200 秒
+        		600,      // 周 600 秒
+        		3600,     // 月 3600 秒
+        		43200     // 年 43200 秒  
+            };  
+            const char *periods[4] = {  
+        		"每日流量统计",  
+        		"每周流量统计",  
+        		"每月流量统计",  
+        		"每年流量统计"  
+    		};
+			// 各统计周期最大等待时间（单位：秒）
+    		time_t max_timeout[4] = {
+        		300,     // 日：预期200秒最多等5分钟
+        		1800,    // 周：预期10分钟最多等半小时
+        		7200,    // 月：预期1小时最多等2小时
+        		86400    // 年：预期12小时最多等24小时
+    		};
+			// 新增:计算程序运行时间  
+    		time_t uptime = now - ProgramStart;
+            for (int i = 0; i < 4; i++) {    
+        		struct stat st;  
+        		if (stat(cdf_files[i], &st) == 0) {    
+            		time_t file_age = now - st.st_mtime;
+					// 智能格式化时间输出函数  
+            		char age_str[64], expected_str[64];  
+
+            		if (file_age >= 3600)    
+                		snprintf(age_str, sizeof(age_str), "%.1f 小时", (double)file_age / 3600.0);    
+            		else if (file_age >= 60)    
+                		snprintf(age_str, sizeof(age_str), "%ld 分钟", file_age / 60);  
+            		else    
+                		snprintf(age_str, sizeof(age_str), "%ld 秒", file_age);  
+  
+            		if (expected_intervals[i] >= 3600)    
+                		snprintf(expected_str, sizeof(expected_str), "%.1f 小时", (double)expected_intervals[i] / 3600.0);    
+            		else if (expected_intervals[i] >= 60)    
+                		snprintf(expected_str, sizeof(expected_str), "%ld 分钟", expected_intervals[i] / 60);    
+            		else    
+                		snprintf(expected_str, sizeof(expected_str), "%ld 秒", expected_intervals[i]);
+              
+            		// 超时判断：在程序运行时间超过预期间隔后只要超过最大等待时间就认为挂了
+            		if (uptime > expected_intervals[i] && file_age > max_timeout[i]) {     
+                		syslog(LOG_ERR, "%s CDF文件 %s 已超过%s未更新（预期更新间隔 %s），准备重启对应进程",   
+                       		periods[i], cdf_files[i], age_str, expected_str);    
+                  
+                		// 修复:区分父进程和worker子进程  
+                		if (i == 0) {  
+                    		// i=0 是父进程(每日统计),不能重启自己,只记录严重错误  
+                    		syslog(LOG_CRIT, "严重错误: 父进程(每日统计)的CDF文件长时间未更新,准备终止所有进程!");
+							// 终止所有worker子进程  
+    						for (int j = 0; j < NR_WORKER_CHILDS; j++) {  
+        						if (workerchildpids[j] > 0) {  
+            						syslog(LOG_WARNING, "终止子进程 %d (PID=%d)", j, workerchildpids[j]);  
+            						kill(workerchildpids[j], SIGTERM);  
+        						}  
+    						} 
+							FILE *http_pidfile = fopen("/var/run/bandwidthd_http.pid", "r");  
+							if (http_pidfile) {  
+    							pid_t http_pid;  
+    							if (fscanf(http_pidfile, "%d", &http_pid) == 1) {  
+        							syslog(LOG_WARNING, "终止HTTP服务器进程 (PID=%d)", http_pid);  
+        							kill(http_pid, SIGTERM);  
+    							}  
+    							fclose(http_pidfile);  
+    							unlink("/var/run/bandwidthd_http.pid");  
+							}
+							 // 等待所有子进程退出  
+    						sleep(2);  
+    						for (int j = 0; j < NR_WORKER_CHILDS; j++) {  
+        						if (workerchildpids[j] > 0) {  
+            						waitpid(workerchildpids[j], NULL, WNOHANG);  
+        						}  
+    						}  
+      					
+    						// syslog(LOG_CRIT, "父进程因CDF文件长时间未更新而退出,程序终止");  
+    						exit(1);  // 退出整个程序
+                		} else if (workerchildpids[i-1] > 0) {  
+                    		syslog(LOG_WARNING, "强制终止并重启%s子进程 (PID=%d)",   
+                           		periods[i], workerchildpids[i-1]); 
+                      
+                    		// 强制终止旧进程  
+                    		kill(workerchildpids[i-1], SIGKILL);  
+                    		waitpid(workerchildpids[i-1], NULL, 0);  
+                      
+                    		// 重新fork worker子进程    
+                    		pid_t new_pid = fork();    
+                        
+                    		if (new_pid == 0) {    
+                        		// 子进程：重新配置并继续执行    
+                        		setchildconfig(i);    
+                        		syslog(LOG_INFO, "%s子进程因CDF文件长时间未更新而重启", periods[i]);    
+                            
+                        		// 子进程需要重新初始化pcap    
+                        		char Error[PCAP_ERRBUF_SIZE];    
+                        		pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);    
+                        		if (pd == NULL) {    
+                            		syslog(LOG_ERR, "%s子进程重启失败: %s", periods[i], Error);    
+                            		_exit(1);    
+                        		}    
+                            
+                        		struct bpf_program fcode;    
+                        		if (pcap_compile(pd, &fcode, config.filter, 1, 0) < 0) {    
+                            		syslog(LOG_ERR, "%s子进程pcap编译失败: %s", periods[i], pcap_geterr(pd));    
+                            		_exit(1);    
+                        		}    
+                            
+                        		if (pcap_setfilter(pd, &fcode) < 0) {    
+                            		syslog(LOG_ERR, "%s子进程pcap过滤器设置失败: %s", periods[i], pcap_geterr(pd));     
+                            		_exit(1);    
+                        		}    
+                          
+                        		pcap_freecode(&fcode);  
+                            
+                        		// 恢复CDF数据（如果配置了）    
+                        		if (config.recover_cdf) {    
+                            		RecoverDataFromCDF();    
+                        		}    
+                            
+                        		// 重置间隔开始时间  
+                        		IntervalStart = time(NULL);    
+                          
+                        		// 注册信号处理  
+                        		signal(SIGHUP, signal_handler);  
+                        		signal(SIGTERM, signal_handler);  
+                        		signal(SIGCHLD, signal_handler);  
+                          
+                        		// 子进程继续执行pcap_loop    
+                        		if (pcap_loop(pd, -1, PacketCallback, NULL) < 0) {    
+                            		syslog(LOG_ERR, "%s子进程pcap_loop失败: %s", periods[i], pcap_geterr(pd));    
+                            		_exit(1);    
+                        		}    
+                            
+                        		pcap_close(pd);    
+                        		_exit(0);    
+                    		} else if (new_pid > 0) {    
+                        		// 父进程：更新PID记录    
+                        		workerchildpids[i-1] = new_pid;    
+                        		syslog(LOG_INFO, "%s子进程因CDF未更新重启成功，新PID=%d", periods[i], new_pid);    
+                    		} else {    
+                        		// fork失败    
+                        		syslog(LOG_ERR, "重启%s子进程失败: fork返回-1: %s", periods[i], strerror(errno));    
+		                        workerchildpids[i-1] = 0;    
+                    		}  
+                		}  
+            		}    
+        		}    
+    		}    
+        }  
+    }  
+    // ========== 健康监测代码结束 ==========
 	// Set the timestamps
 	for (counter=0; counter < IpCount; counter++)
         IpTable[counter].timestamp = timestamp;
@@ -1274,10 +1713,22 @@ void CommitData(time_t timestamp)
 
 	if (config.output_cdf)
 		{
+		// 诊断日志:每次都记录  
+    	//syslog(LOG_INFO, "CommitData (tag='%c'): 准备写入CDF, IpCount=%u, timestamp=%ld", config.tag, IpCount, timestamp);  
+      
+    	// 检查磁盘空间  
+    	struct statvfs vfs;  
+    	if (statvfs("/tmp", &vfs) == 0) {  
+        	unsigned long long free_bytes = (unsigned long long)vfs.f_bavail * vfs.f_bsize;  
+        	if (free_bytes < 10 * 1024 * 1024) {  // 小于10MB  
+            		syslog(LOG_ERR, "警告: /tmp 分区空间不足, 剩余 %llu MB",   
+                   free_bytes / (1024 * 1024));  
+        	}  
+    	}
 		// TODO: This needs to be moved into the forked section, but I don't want to 
 		//	deal with that right now (Heavy disk io may make us drop packets)
 		StoreIPDataInCDF(IpTable);
-
+		
 		if (RotateLogs >= config.range/RANGE1) // We set this++ on HUP
 			{
 			logname1[32] = config.tag;
@@ -1320,8 +1771,8 @@ void CommitData(time_t timestamp)
     	// 检查是否有超时的绘图子进程  
     	if (graph_child_pid > 0) {  
         	time_t now = time(NULL);  
-        	if (now - graph_start_time > 600) {  // 10分钟超时  
-            	syslog(LOG_WARNING, "绘图子进程 PID=%d 超时,强制终止", graph_child_pid);  
+        	if (now - graph_start_time > 3600) {  // 60分钟超时  
+            	syslog(LOG_WARNING, "绘图子进程 PID=%d 超时60分钟,强制终止", graph_child_pid);  
             	kill(graph_child_pid, SIGKILL);  
             	waitpid(graph_child_pid, NULL, 0);  
            	 	graph_child_pid = 0;  
@@ -1334,21 +1785,27 @@ void CommitData(time_t timestamp)
                 	graph_child_pid = 0;  
                 	MayGraph = TRUE;  
            		 } else if (result == -1) {  
-                	syslog(LOG_WARNING, "绘图子进程 PID=%d 已不存在", graph_child_pid);  
+                	// syslog(LOG_WARNING, "绘图子进程 PID=%d 已不存在", graph_child_pid);  
                 	graph_child_pid = 0;  
                 	MayGraph = TRUE;  
             	}  
         	}  
     	}
 		if (GraphIntervalCount%config.skip_intervals == 0 && MayGraph)
-			{
-			MayGraph = FALSE;
-			/* If WriteOutWebpages fails, reenable graphing since there won't
-			 * be any children to reap.
-			 */
-			if (WriteOutWebpages(timestamp))
-				MayGraph = TRUE;
-			}
+		{  
+    			MayGraph = FALSE;  
+    			pid_t result = WriteOutWebpages(timestamp);  
+      
+    			if (result > 0) {  
+        			// 成功创建子进程，记录PID和开始时间  
+        			graph_child_pid = result;  
+        			graph_start_time = time(NULL);  
+        			// 保持 MayGraph = FALSE，等待子进程完成  
+    			} else {  
+        			// 失败了（返回-1或-2），允许下次重试  
+        			MayGraph = TRUE;  
+   				}  
+		}
 		else if (GraphIntervalCount%config.skip_intervals == 0)
 			syslog(LOG_INFO, "上次图形绘制未完成... 跳过当前运行");
 
