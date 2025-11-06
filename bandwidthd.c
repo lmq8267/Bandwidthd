@@ -7,6 +7,7 @@
 #ifdef HAVE_LIBPQ
 #include <libpq-fe.h>
 #endif
+#include <sys/statvfs.h>
 
 // We must call regular exit to write out profile data, but child forks are supposed to usually
 // call _exit?
@@ -223,7 +224,18 @@ int WriteOutWebpages(time_t timestamp)
 	int Counter;
 
 	/* Did we catch any packets since last time? */
-	if (!DataStore) return -1;
+	if (!DataStore) {  
+    	const char *period_desc;  
+    	switch (config.tag) {  
+        	case '1': period_desc = "每日统计"; break;  
+        	case '2': period_desc = "每周统计"; break;  
+        	case '3': period_desc = "每月统计"; break;  
+        	case '4': period_desc = "每年统计"; break;  
+        	default: period_desc = "未知周期"; break;  
+    	}  
+    	syslog(LOG_WARNING, "[%s] IPDataStore数据为空,跳过图表生成", period_desc);  
+    	return -1;  
+	}
 
 	// break off from the main line so we don't miss any packets while we graph
 	graphpid = fork();
@@ -260,6 +272,17 @@ int WriteOutWebpages(time_t timestamp)
 				}
 
 			MakeIndexPages(NumGraphs, SummaryData);
+			/* const char *period_desc;  
+			switch (config.tag) {  
+    			case '1': period_desc = "每日统计"; break;  
+    			case '2': period_desc = "每周统计"; break;  
+    			case '3': period_desc = "每月统计"; break;  
+    			case '4': period_desc = "每年统计"; break;  
+    			default: period_desc = "未知周期"; break;  
+			}  
+  
+			syslog(LOG_INFO, "[%s] HTML页面生成成功: 生成了 %d 个IP的图表", period_desc, NumGraphs); */
+				
 			// 修复: 子进程释放内存  
 			for (Counter = 0; Counter < NumGraphs; Counter++) {  
 				free(SummaryData[Counter]);  
@@ -1039,6 +1062,169 @@ void StoreIPDataInPostgresql(struct IPData IncData[])
 	        return;
     	    }
 
+		// ************ 检查并创建表结构  
+		static int tables_checked = 0;  
+		if (!tables_checked) {  
+    		// 检查 sensors 表是否存在  
+    		res = PQexec(conn,   
+        		"SELECT EXISTS ("  
+        		"  SELECT FROM information_schema.tables "  
+        		"  WHERE table_schema = 'public' AND table_name = 'sensors'"  
+        		");");  
+      
+    		if (PQresultStatus(res) != PGRES_TUPLES_OK) {  
+        		syslog(LOG_ERR, "检查数据库表结构失败: %s", PQerrorMessage(conn));  
+        		PQclear(res);  
+        		PQfinish(conn);  
+        		conn = NULL;  
+        		return;  
+    		}  
+      
+    		// 如果表不存在,创建所有表  
+    		if (strcmp(PQgetvalue(res, 0, 0), "f") == 0) {  
+        		PQclear(res);  
+        		syslog(LOG_INFO, "数据库表不存在,正在自动创建表结构...");  
+          
+        		// 创建 sensors 表  
+        		res = PQexec(conn,  
+            		"CREATE TABLE sensors ("  
+            		"  sensor_id SERIAL PRIMARY KEY,"  
+            		"  sensor_name VARCHAR(255) UNIQUE NOT NULL,"  
+            		"  last_connection TIMESTAMP"  
+            		");");  
+          
+        		if (PQresultStatus(res) != PGRES_COMMAND_OK) {  
+            		syslog(LOG_ERR, "创建 sensors 表失败: %s", PQerrorMessage(conn));  
+            		PQclear(res);  
+            		PQfinish(conn);  
+           			conn = NULL;  
+            		return;  
+        		}  
+        		PQclear(res);  
+          
+        		// 创建 bd_tx_log 表  
+        		res = PQexec(conn,  
+            		"CREATE TABLE bd_tx_log ("  
+            		"  sensor_id INTEGER NOT NULL,"  
+            		"  sample_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"  
+            		"  sample_duration INTEGER,"  
+            		"  ip INET,"  
+            		"  total BIGINT,"  
+            		"  icmp BIGINT,"  
+            		"  udp BIGINT,"  
+            		"  tcp BIGINT,"  
+            		"  ftp BIGINT,"  
+            		"  http BIGINT,"  
+            		"  p2p BIGINT"  
+            		");");  
+          
+        		if (PQresultStatus(res) != PGRES_COMMAND_OK) {  
+            		syslog(LOG_ERR, "创建 bd_tx_log 表失败: %s", PQerrorMessage(conn));  
+            		PQclear(res);  
+            		PQfinish(conn);  
+            		conn = NULL;  
+            		return;  
+        		}  
+        		PQclear(res);  
+          
+        		// 创建 bd_rx_log 表  
+        		res = PQexec(conn,  
+            		"CREATE TABLE bd_rx_log ("  
+            		"  sensor_id INTEGER NOT NULL,"  
+           	 		"  sample_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"  
+            		"  sample_duration INTEGER,"  
+            		"  ip INET,"  
+            		"  total BIGINT,"  
+            		"  icmp BIGINT,"  
+            		"  udp BIGINT,"  
+            		"  tcp BIGINT,"  
+            		"  ftp BIGINT,"  
+            		"  http BIGINT,"  
+            		"  p2p BIGINT"  
+            		");");  
+          
+        		if (PQresultStatus(res) != PGRES_COMMAND_OK) {  
+            		syslog(LOG_ERR, "创建 bd_rx_log 表失败: %s", PQerrorMessage(conn));  
+            		PQclear(res);  
+            		PQfinish(conn);  
+            		conn = NULL;  
+            		return;  
+        		}  
+        		PQclear(res);  
+          
+        		// 创建 bd_tx_total_log 表  
+        		res = PQexec(conn,  
+            		"CREATE TABLE bd_tx_total_log ("  
+            		"  sensor_id INTEGER NOT NULL,"  
+            		"  sample_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"  
+            		"  sample_duration INTEGER,"  
+            		"  ip INET,"  
+            		"  total BIGINT,"  
+            		"  icmp BIGINT,"  
+            		"  udp BIGINT,"  
+            		"  tcp BIGINT,"  
+            		"  ftp BIGINT,"  
+            		"  http BIGINT,"  
+            		"  p2p BIGINT"  
+            		");");  
+          
+        		if (PQresultStatus(res) != PGRES_COMMAND_OK) {  
+            		syslog(LOG_ERR, "创建 bd_tx_total_log 表失败: %s", PQerrorMessage(conn));  
+            		PQclear(res);  
+            		PQfinish(conn);  
+            		conn = NULL;  
+            		return;  
+        		}  
+        		PQclear(res);  
+          
+        		// 创建 bd_rx_total_log 表  
+        		res = PQexec(conn,  
+            		"CREATE TABLE bd_rx_total_log ("  
+            		"  sensor_id INTEGER NOT NULL,"  
+            		"  sample_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"  
+            		"  sample_duration INTEGER,"  
+            		"  ip INET,"  
+            		"  total BIGINT,"  
+            		"  icmp BIGINT,"  
+            		"  udp BIGINT,"  
+            		"  tcp BIGINT,"  
+            		"  ftp BIGINT,"  
+            		"  http BIGINT,"  
+            		"  p2p BIGINT"  
+            		");");  
+          
+        		if (PQresultStatus(res) != PGRES_COMMAND_OK) {  
+            		syslog(LOG_ERR, "创建 bd_rx_total_log 表失败: %s", PQerrorMessage(conn));  
+            		PQclear(res);  
+            		PQfinish(conn);  
+            		conn = NULL;  
+            		return;  
+        		}  
+        		PQclear(res);  
+          
+        		// 创建索引  
+        		res = PQexec(conn, "CREATE INDEX bd_tx_log_time_index ON bd_tx_log(sample_time);");  
+        		if (PQresultStatus(res) == PGRES_COMMAND_OK) {  
+            		PQclear(res);  
+            		res = PQexec(conn, "CREATE INDEX bd_rx_log_time_index ON bd_rx_log(sample_time);");  
+        		}  
+        		if (PQresultStatus(res) == PGRES_COMMAND_OK) {  
+            		PQclear(res);  
+            		res = PQexec(conn, "CREATE INDEX bd_tx_total_log_time_index ON bd_tx_total_log(sample_time);");  
+        		}  
+        		if (PQresultStatus(res) == PGRES_COMMAND_OK) {  
+            		PQclear(res);  
+            		res = PQexec(conn, "CREATE INDEX bd_rx_total_log_time_index ON bd_rx_total_log(sample_time);");  
+        		}  
+        		PQclear(res);  
+          
+        		syslog(LOG_INFO, "数据库表结构创建成功");  
+    		} else {  
+        		PQclear(res);  
+    		}  
+      
+    		tables_checked = 1;  
+		}
 		strncpy(Values[0], config.sensor_id, 50);
 		res = PQexecParams(conn, "select sensor_id from sensors where sensor_name = $1;",
 			1,       /* one param */
@@ -1296,6 +1482,16 @@ void StoreIPDataInCDF(struct IPData IncData[])
         }		
 		}
 		fclose(cdf);
+		/* const char *period_desc;  
+		switch (config.tag) {  
+    		case '1': period_desc = "每日统计"; break;  
+    		case '2': period_desc = "每周统计"; break;  
+    		case '3': period_desc = "每月统计"; break;  
+    		case '4': period_desc = "每年统计"; break;  
+    		default: period_desc = "未知周期"; break;  
+		}  
+  
+		syslog(LOG_INFO, "[%s] CDF文件写入成功: %s, 写入了 %u 条记录", period_desc, logfile, IpCount); */
 	}
 
 void _StoreIPDataInRam(struct IPData *IPData)
@@ -1403,6 +1599,25 @@ void CommitData(time_t timestamp)
 	for (counter=0; counter < IpCount; counter++)
         IpTable[counter].timestamp = timestamp;
 
+	// 计算总流量  
+	unsigned long long total_send = 0, total_recv = 0;  
+	for (counter=0; counter < IpCount; counter++) {  
+   		 total_send += IpTable[counter].Send.total;  
+    	 total_recv += IpTable[counter].Receive.total;  
+	}  
+  
+	// 根据tag输出中文描述  
+	/* const char *period_desc;  
+	switch (config.tag) {  
+    	case '1': period_desc = "每日统计"; break;  
+    	case '2': period_desc = "每周统计"; break;  
+    	case '3': period_desc = "每月统计"; break;  
+    	case '4': period_desc = "每年统计"; break;  
+    	default: period_desc = "未知周期"; break;  
+	}  
+  
+	syslog(LOG_INFO, "[%s] 数据收集完成: 记录了 %u 个IP, 总上传 %.2f MB, 总下载 %.2f MB", period_desc, IpCount, total_send / (1024.0 * 1024.0), total_recv / (1024.0 * 1024.0)); */
+		
 	// Output modules
 	// Only call this from first thread
 	if (config.output_database && config.tag == '1')
