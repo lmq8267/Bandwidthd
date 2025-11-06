@@ -144,12 +144,16 @@ void PrintTableLine(FILE *stream, struct SummaryData *Data, int Counter)
 	char Buffer6[50];
 	char Buffer7[50];
 	char Buffer8[50];
+	char DisplayText[50];
 
 	// First convert the info to nice, human readable stuff
-	if (Data->IP == 0)
+	if (Data->IP == 0) {
 		strcpy(Buffer1, "Total");
-	else
+		strcpy(DisplayText, "总计");
+	} else {
 		HostIp2CharIp(Data->IP, Buffer1);
+		strcpy(DisplayText, Buffer1);
+	}
 
     FormatNum(Data->Total,         Buffer2,  50);
 	FormatNum(Data->TotalSent,     Buffer3,  50);
@@ -170,7 +174,7 @@ void PrintTableLine(FILE *stream, struct SummaryData *Data, int Counter)
 		fprintf(stream, "<TD align=center><a href=\"#%s-%c\">%s</a></TD>%s%s%s%s%s%s%s%s%s</TR>\n",
 			Buffer1, // Ip
 			config.tag,
-			Buffer1, // Ip
+			DisplayText, // Ip
 			Buffer2, // Total
 			Buffer3, // TotalSent
 			Buffer4, // TotalReceived
@@ -182,7 +186,7 @@ void PrintTableLine(FILE *stream, struct SummaryData *Data, int Counter)
 			Buffer8); // ICMP
 	else
 		fprintf(stream, "<TD align=center>%s</TD>%s%s%s%s%s%s%s%s%s</TR>\n",
-			Buffer1, // Ip
+			DisplayText, // Ip
 			Buffer2, // Total
 			Buffer3, // TotalSent
 			Buffer4, // TotalReceived
@@ -207,6 +211,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 	char Buffer1[50];
 	char Buffer2[50];
 	char HostName[255];
+	char DisplayIP[50];
 
 	WriteTime = time(NULL);
 	
@@ -310,6 +315,12 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 	fprintf(file, "}\n");
 	fprintf(file, "</script>\n");
 	fprintf(file, "更新时间： %s 星期%s<br>\n", time_buf, weekdays_cn[weekday]);
+	// 添加下次更新时间  
+	time_t next_update = now + config.interval;  
+	struct tm *next_tm = localtime(&next_update);  
+	char next_time_buf[128];  
+	strftime(next_time_buf, sizeof(next_time_buf), "%Y-%m-%d %H:%M:%S", next_tm);  
+	fprintf(file, "下次更新： %s 星期%s (间隔%d秒)<br>\n", next_time_buf, weekdays_cn[next_tm->tm_wday], config.interval);
 	fprintf(file, "<BR>\n <a href=\"lljk.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#007BFF;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">日流量</a> \n ");
 	fprintf(file, " <a href=\"lljk2.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#28A745;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">周流量</a> \n ");
 	fprintf(file, " <a href=\"lljk3.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#FFC107;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">月流量</a> \n ");
@@ -347,12 +358,14 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 			if (SummaryData[Counter]->IP == 0)
 				{
 				strcpy(Buffer1, "Total");	
-				strcpy(HostName, "全网总计");
+				strcpy(HostName, "总计");
+				strcpy(DisplayIP, "流量"); 
 				}
 			else
 				{	
 				HostIp2CharIp(SummaryData[Counter]->IP, Buffer1);
 				rdns(HostName, SummaryData[Counter]->IP);
+				strcpy(DisplayIP, Buffer1);
 				}
 			fprintf(file,
     				"<a name=\"%s-%c\"></a>"
@@ -370,7 +383,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
     				"<img src=\"%s\" alt=\"图例\">\n"
     				"</div>\n",
     				Buffer1, config.tag,              // 锚点
-    				Buffer1, HostName,                // 标题中的 IP 和主机名
+    				DisplayIP, HostName,                // 标题中的 IP 和主机名
     				Buffer1, config.tag, Buffer1,     // 发送图像路径和 ALT
     				legend_base64,                    // 图例图片
     				Buffer1, config.tag, Buffer1,     // 接收图像路径和 ALT
@@ -380,6 +393,17 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 
 	fprintf(file, "</BODY></HTML>\n");
 
+	const char *period_desc;  
+	switch (config.tag) {  
+    	case '1': period_desc = "每日统计"; break;  
+    	case '2': period_desc = "每周统计"; break;  
+    	case '3': period_desc = "每月统计"; break;  
+    	case '4': period_desc = "每年统计"; break;  
+    	default: period_desc = "未知周期"; break;  
+	}  
+  
+	// syslog(LOG_INFO, "[%s] 前端页面更新成功: %s, 包含 %d 个IP", period_desc, config.tag == '1' ? "/tmp/Bandwidthd_html/lljk.html" : filename, NumIps);
+		
 	fclose(file);
 
 	////////////////////////////////////////////////
@@ -451,6 +475,12 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
 		fprintf(file, "}\n");
 		fprintf(file, "</script>\n");
 		fprintf(file, "更新时间： %s 星期%s<br>\n", time_buf, weekdays_cn[weekday]);
+		// 添加下次更新时间  
+		time_t next_update = now + config.interval;  
+		struct tm *next_tm = localtime(&next_update);  
+		char next_time_buf[128];  
+		strftime(next_time_buf, sizeof(next_time_buf), "%Y-%m-%d %H:%M:%S", next_tm);  
+		fprintf(file, "下次更新： %s 星期%s (间隔%d秒)<br>\n", next_time_buf, weekdays_cn[next_tm->tm_wday], config.interval);
 		fprintf(file, "<BR>\n <a href=\"lljk.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#007BFF;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">日流量</a> \n ");
 		fprintf(file, " <a href=\"lljk2.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#28A745;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">周流量</a> \n ");
 		fprintf(file, " <a href=\"lljk3.html\" style=\"display:inline-block;margin:6px;padding:10px 20px;font-size:15px;background:#FFC107;color:#fff;border-radius:8px;text-decoration:none;box-shadow:0 2px 5px rgba(0,0,0,0.15);transition:background 0.3s ease;\">月流量</a> \n ");
@@ -509,7 +539,7 @@ void MakeIndexPages(int NumIps, struct SummaryData *SummaryData[])
     						"<img src=\"%s\" alt=\"图例\">\n"
     						"</div>\n",
     						Buffer1, config.tag,              // 锚点
-    						Buffer1, HostName,                // 标题中的 IP 和主机名
+    						DisplayIP, HostName,                // 标题中的 IP 和主机名
     						Buffer1, config.tag, Buffer1,     // 发送图像路径和 ALT
     						legend_base64,                    // 图例图片
     						Buffer1, config.tag, Buffer1,     // 接收图像路径和 ALT
