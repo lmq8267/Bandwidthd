@@ -19,8 +19,8 @@ jobs:
       matrix:
         include:
 
-        #- target: aarch64-unknown-linux
-          #URL: aarch64-linux-musl
+        - target: aarch64-linux
+          URL: aarch64-linux-musl
         
         - target: armv7l-linux-eabihf
           URL: armv7l-linux-musleabihf
@@ -55,7 +55,7 @@ jobs:
          URL: ${{ matrix.URL }}
     steps:
      - name: Checkout code
-       uses: actions/checkout@v4
+       uses: actions/checkout@v5
        
      - name: 下载linux-musl-gcc
        uses: lmq8267/dl-musl@main
