@@ -35,7 +35,7 @@ jobs:
       with:
         context: .
         provenance: false
-        platforms: linux/amd64,linux/s390x,linux/arm64,linux/riscv64,linux/arm/v6
+        platforms: linux/amd64,linux/s390x,linux/arm64,linux/arm/v6
         push: true
         tags: |
           docker.io/${{ github.repository_owner }}/bandwidthd-php:latest
@@ -54,8 +54,8 @@ jobs:
           docker pull --platform linux/arm64 lmq8267/bandwidthd-php:latest
           docker save -o /opt/dk/bandwidthd-php-arm64-docker.tar lmq8267/bandwidthd-php:latest
 
-          docker pull --platform linux/riscv64 lmq8267/bandwidthd-php:latest
-          docker save -o /opt/dk/bandwidthd-php-riscv64-docker.tar lmq8267/bandwidthd-php:latest
+          # docker pull --platform linux/riscv64 lmq8267/bandwidthd-php:latest
+          # docker save -o /opt/dk/bandwidthd-php-riscv64-docker.tar lmq8267/bandwidthd-php:latest
 
           docker pull --platform linux/arm/v6 lmq8267/bandwidthd-php:latest
           docker save -o /opt/dk/bandwidthd-php-armv6-docker.tar lmq8267/bandwidthd-php:latest
