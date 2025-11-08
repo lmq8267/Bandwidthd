@@ -1,5 +1,99 @@
 [![问问 AI](https://deepwiki.com/badge.svg)](https://deepwiki.com/lmq8267/Bandwidthd)
 
+----
+
+- 主界面
+  
+<img width="1703" height="2391" alt="image" src="https://github.com/user-attachments/assets/594812e1-ca1b-4131-bafe-8801106c9fa9" />
+
+-----
+
+- 单个设备节点
+  
+<img width="1710" height="4677" alt="image" src="https://github.com/user-attachments/assets/bacc26ee-bd62-47d8-9f44-c8941686436e" />
+
+-----
+
+## Docker 命令自建pg数据库和php前端示例：
+
+---------
+
+#### ① 单容器部署(包含 PostgreSQL PHP)示例：
+
+```
+docker run -d \  
+  --name bandwidthd \  
+  -p 8080:80 \  
+  -p 5432:5432 \  
+  -e DB_NAME=bandwidthd \  
+  -e DB_USER=your_username \  
+  -e DB_PASSWORD=your_password \  
+  -e INIT_DB=true \  
+  -e POSTGRES_LISTEN_ADDRESSES=* \  
+  -v /opt/bandwidthd_data:/var/lib/postgresql/data \  
+  --restart=always \
+  lmq8267/bandwidthd-php:latest  
+```
+
+- 其中的`your_username` `your_password` 改成你的用户名和密码，`bandwidthd`是数据库名，`/opt/bandwidthd_data`是映射出内部数据库到本地文件夹，`8080`是你要打开的php前端端口，`5432`是你bandwidthd连接的数据库端口
+
+---------
+
+#### ② docker-compose.yml 示例： 
+
+```
+version: '3.8'  
+  
+services:  
+  bandwidthd-php:  
+    image: 'lmq8267/bandwidthd-php:latest'  
+    container_name: bandwidthd  
+    ports:  
+      - "8080:80"      # Web 界面  
+      - "5432:5432"    # PostgreSQL 数据库  
+    environment:  
+      - DB_NAME=bandwidthd  
+      - DB_USER=your_username  
+      - DB_PASSWORD=your_password  
+      - INIT_DB=true  
+      - POSTGRES_LISTEN_ADDRESSES=*  
+      - TZ=Asia/Shanghai  
+    volumes:  
+      - /opt/bandwidthd_data:/var/lib/postgresql/data   
+    restart: always 
+```
+
+------
+
+#### ③ bandwidthd配置文件连接数据库示例：
+
+```
+pgsql_connect_string "user = your_username password = your_password dbname = bandwidthd host = 你的设备IP:5432"
+```
+
+------
+
+```
+# 查看日志  
+docker logs -f bandwidthd  
+  
+# 停止容器  
+docker stop bandwidthd  
+  
+# 删除容器  
+docker rm bandwidthd  
+  
+# 进入容器调试  
+docker exec -it bandwidthd /bin/sh
+
+# 命令行备份数据库
+docker exec bandwidthd pg_dump -U bandwidthd bandwidthd > backup.sql
+
+# 命令行恢复数据库
+docker exec -i bandwidthd psql -U bandwidthd bandwidthd < backup.sql
+
+```
+
 Programmed by David Hinkle, Commissioned by DerbyTech of Illinois.  
 Special thanks goes to Brice Beaman at brice@beamans.org for releasing 
 the software, testing and debugging, Blaze at ts@spective.net for his 
