@@ -137,16 +137,6 @@ subneta:
             }
         }
 
-        // 调试输出完整字节（有助于定位结构体对齐/覆盖问题）
-        {
-            unsigned char *p = (unsigned char *)&SubnetTable[SubnetCount];
-            size_t i;
-            for (i = 0; i < sizeof(SubnetTable[SubnetCount]); i++) {
-                if (i % 16 == 0) fprintf(stderr, "\n  %04zu: ", i);
-                fprintf(stderr, "%02X ", p[i]);
-            }
-        }
-
         // 使用独立缓冲区的字符串写入日志（安全）
         syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", ipbuf, maskbuf);
 
@@ -192,16 +182,6 @@ subnetb:
             tmp.s_addr = htonl(SubnetTable[SubnetCount].mask);
             if (inet_ntop(AF_INET, &tmp, maskbuf, sizeof(maskbuf)) == NULL) {
                 strncpy(maskbuf, "UNKNOWN", sizeof(maskbuf)); maskbuf[sizeof(maskbuf)-1] = '\0';
-            }
-        }
-
-        // 字节级调试（观察结构体内存）
-        {
-            unsigned char *p = (unsigned char *)&SubnetTable[SubnetCount];
-            size_t i;
-            for (i = 0; i < sizeof(SubnetTable[SubnetCount]); i++) {
-                if (i % 16 == 0) fprintf(stderr, "\n  %04zu: ", i);
-                fprintf(stderr, "%02X ", p[i]);
             }
         }
 
