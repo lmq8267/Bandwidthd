@@ -78,69 +78,72 @@ void signal_handler(int sig)
     		if (config.tag == '1') {  
         		int i;  
           
-        		// 1. 先终止所有 worker 子进程  
-        		for (i=0; i < NR_WORKER_CHILDS; i++) {  
-            		if (workerchildpids[i] > 0) {  
-                		kill(workerchildpids[i], SIGTERM);  
+        		// 只在启用了绘图或 CDF 时才清理 worker 子进程  
+       		 	if (config.graph || config.output_cdf) {  
+            		// 1. 先终止所有 worker 子进程    
+            		for (i=0; i < NR_WORKER_CHILDS; i++) {    
+                		if (workerchildpids[i] > 0) {    
+                    		kill(workerchildpids[i], SIGTERM);    
+                		}    
+            		}    
+            
+            		// 2. 等待 worker 子进程退出(最多等待5秒)    
+            		time_t start = time(NULL);    
+            		int remaining = NR_WORKER_CHILDS;    
+            		while (remaining > 0 && (time(NULL) - start) < 5) {    
+                		for (i=0; i < NR_WORKER_CHILDS; i++) {    
+                    		if (workerchildpids[i] > 0) {    
+                        		if (waitpid(workerchildpids[i], NULL, WNOHANG) > 0) {    
+                            		workerchildpids[i] = 0;    
+                            		remaining--;    
+                        		}    
+                    		}    
+                		}    
+                		if (remaining > 0) usleep(100000);  // 等待100ms    
+            		}    
+            
+            		// 3. 强制终止未响应的 worker 子进程    
+            		for (i=0; i < NR_WORKER_CHILDS; i++) {    
+                		if (workerchildpids[i] > 0) {    
+                    		kill(workerchildpids[i], SIGKILL);    
+                    		waitpid(workerchildpids[i], NULL, 0);    
+                		}    
             		}  
         		}  
-          
-        		// 2. 等待 worker 子进程退出(最多等待5秒)  
-        		time_t start = time(NULL);  
-        		int remaining = NR_WORKER_CHILDS;  
-        		while (remaining > 0 && (time(NULL) - start) < 5) {  
-            		for (i=0; i < NR_WORKER_CHILDS; i++) {  
-                		if (workerchildpids[i] > 0) {  
-                    		if (waitpid(workerchildpids[i], NULL, WNOHANG) > 0) {  
-                        		workerchildpids[i] = 0;  
-                        		remaining--;  
-                    		}  
-                		}  
-            		}  
-            		if (remaining > 0) usleep(100000);  // 等待100ms  
-        		}  
-          
-        		// 3. 强制终止未响应的 worker 子进程  
-        		for (i=0; i < NR_WORKER_CHILDS; i++) {  
-            		if (workerchildpids[i] > 0) {  
-                		kill(workerchildpids[i], SIGKILL);  
-                		waitpid(workerchildpids[i], NULL, 0);  
-            		}  
-        		}  
-    		}  
-      
-   			 // 4. 回收所有绘图子进程  
-    		 while (waitpid(-1, NULL, WNOHANG) > 0);  
-      
-    		// 5. 清理资源  
-    		if (pd) pcap_close(pd);  
-      
-    		// 6. 删除 PID 文件  
-    		unlink("/var/run/bandwidthd.pid");  
-      
-    		// 根据 config.tag 输出不同的退出信息
-			const char *tag_desc;  
-
-			switch (config.tag) {  
-        		case '1':  
-            		tag_desc = "每日流量统计主进程";  
-            		break;  
-        		case '2':  
-            		tag_desc = "每周流量统计子进程";  
-            		break;  
-        		case '3':  
-            		tag_desc = "每月流量统计子进程";  
-            		break;  
-        		case '4':  
-            		tag_desc = "每年流量统计子进程";  
-            		break;  
-        		default:  
-            		tag_desc = "流量统计子进程";  
-            		break;  
-    		} 
-
-			// 输出更具可读性的日志
-			syslog(LOG_INFO, "%s 正常退出", tag_desc);
+    		}    
+        
+    		// 4. 回收所有绘图子进程    
+    		while (waitpid(-1, NULL, WNOHANG) > 0);    
+        
+    		// 5. 清理资源    
+    		if (pd) pcap_close(pd);    
+        
+    		// 6. 删除 PID 文件    
+    		unlink("/var/run/bandwidthd.pid");    
+        
+    		// 根据 config.tag 输出不同的退出信息  
+    		const char *tag_desc;    
+  
+    		switch (config.tag) {    
+        		case '1':    
+            		tag_desc = "每日流量统计主进程";    
+            		break;    
+        		case '2':    
+            		tag_desc = "每周流量统计子进程";    
+            		break;    
+        		case '3':    
+            		tag_desc = "每月流量统计子进程";    
+            		break;    
+        		case '4':    
+            		tag_desc = "每年流量统计子进程";    
+            		break;    
+        		default:    
+            		tag_desc = "流量统计子进程";    
+            		break;    
+    		}   
+  
+    		// 输出更具可读性的日志  
+    		syslog(LOG_INFO, "%s 正常退出", tag_desc);;
   
     		exit(0);  
     		break;
@@ -574,6 +577,10 @@ int main(int argc, char **argv)
 	char *used_config_file = NULL;  // 实际使用的配置文件路径
 	
 	ProgramStart = time(NULL);
+
+	for (i = 0; i < NR_WORKER_CHILDS; i++) {  
+		workerchildpids[i] = 0;  
+	}
 
 	config.dev = NULL;
 	config.filter = "ip";
