@@ -95,39 +95,70 @@ newline:
 	}
 	;
 
-subneta:
-	TOKSUBNET IPADDR IPADDR
-	{
-	struct in_addr addr, addr2;
-	
-	SubnetTable[SubnetCount].ip = inet_network($2) & inet_network($3);
-    	SubnetTable[SubnetCount].mask = inet_network($3);	
+subneta:  
+    TOKSUBNET IPADDR IPADDR  
+    {  
+    struct in_addr addr, addr2;  
+    in_addr_t parsed_ip, parsed_mask;  
+      
+    // 解析 IP 地址  
+    parsed_ip = inet_network($2);  
+    if (parsed_ip == (in_addr_t)-1) {  
+        fprintf(stderr, "无效的 IP 地址: %s 在第 %d 行\n", $2, LineNo);  
+        syslog(LOG_ERR, "无效的 IP 地址: %s 在第 %d 行", $2, LineNo);  
+        YYERROR;  
+    }  
+      
+    // 解析子网掩码  
+    parsed_mask = inet_network($3);  
+    if (parsed_mask == (in_addr_t)-1) {  
+        fprintf(stderr, "无效的子网掩码: %s 在第 %d 行\n", $3, LineNo);  
+        syslog(LOG_ERR, "无效的子网掩码: %s 在第 %d 行", $3, LineNo);  
+        YYERROR;  
+    }  
+      
+    SubnetTable[SubnetCount].ip = parsed_ip & parsed_mask;  
+    SubnetTable[SubnetCount].mask = parsed_mask;  
+  
+    addr.s_addr = htonl(SubnetTable[SubnetCount].ip);  
+    addr2.s_addr = htonl(SubnetTable[SubnetCount++].mask);  
+    syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", inet_ntoa(addr), inet_ntoa(addr2));  
+    }  
+    ;
 
-	addr.s_addr = ntohl(SubnetTable[SubnetCount].ip);
-	addr2.s_addr = ntohl(SubnetTable[SubnetCount++].mask);
-	syslog(LOG_INFO, "监控子网 %s 子网掩码为 %s", inet_ntoa(addr), inet_ntoa(addr2));
-	}
-	;
-
-subnetb:
-	TOKSUBNET IPADDR TOKSLASH NUMBER
-	{
-	unsigned int Subnet, Counter, Mask;
-	struct in_addr addr, addr2;
-
-	Mask = 1; Mask <<= 31;
-	for (Counter = 0, Subnet = 0; Counter < $4; Counter++)
-		{
-		Subnet >>= 1;
-		Subnet |= Mask;
-		}
- 	SubnetTable[SubnetCount].mask = Subnet; 
-	SubnetTable[SubnetCount].ip = inet_network($2) & Subnet;
-	addr.s_addr = ntohl(SubnetTable[SubnetCount].ip);
-	addr2.s_addr = ntohl(SubnetTable[SubnetCount++].mask);
-	syslog(LOG_INFO, "监控子网 %s 子网掩码为 %s", inet_ntoa(addr), inet_ntoa(addr2));
-	}
-	;
+subnetb:  
+    TOKSUBNET IPADDR TOKSLASH NUMBER  
+    {  
+    struct in_addr addr, addr2;  
+    in_addr_t parsed_ip;  
+    unsigned int Mask;  
+      
+    // 验证 CIDR 前缀长度  
+    if ($4 < 0 || $4 > 32) {  
+        fprintf(stderr, "无效的 CIDR 前缀长度 %d (必须在 0-32 之间) 在第 %d 行\n", $4, LineNo);  
+        syslog(LOG_ERR, "无效的 CIDR 前缀长度 %d 在第 %d 行", $4, LineNo);  
+        YYERROR;  
+    }  
+      
+    // 解析 IP 地址并检查错误  
+    parsed_ip = inet_network($2);  
+    if (parsed_ip == (in_addr_t)-1) {  
+        fprintf(stderr, "无效的 IP 地址: %s 在第 %d 行\n", $2, LineNo);  
+        syslog(LOG_ERR, "无效的 IP 地址: %s 在第 %d 行", $2, LineNo);  
+        YYERROR;  
+    }  
+      
+    // 生成子网掩码  
+    Mask = ($4 == 0) ? 0 : (0xFFFFFFFF << (32 - $4));  
+      
+    SubnetTable[SubnetCount].mask = Mask;  
+    SubnetTable[SubnetCount].ip = parsed_ip & Mask;  
+      
+    addr.s_addr = htonl(SubnetTable[SubnetCount].ip);  
+    addr2.s_addr = htonl(SubnetTable[SubnetCount++].mask);  
+    syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", inet_ntoa(addr), inet_ntoa(addr2));  
+    }  
+    ;
 
 string:
     STRING
