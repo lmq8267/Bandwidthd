@@ -563,12 +563,12 @@ static const yytype_int8 yytranslate[] =
 
 #if YYDEBUG
 /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
-static const yytype_uint8 yyrline[] =
+static const yytype_int16 yyrline[] =
 {
        0,    51,    51,    52,    56,    58,    60,    62,    64,    66,
       68,    70,    72,    74,    76,    78,    80,    82,    86,    88,
-      92,    99,   130,   164,   172,   179,   186,   193,   200,   207,
-     214,   221,   228,   235,   243,   251
+      92,    99,   173,   243,   251,   258,   265,   272,   279,   286,
+     293,   300,   307,   314,   322,   330
 };
 #endif
 
@@ -1170,180 +1170,259 @@ yyreduce:
 
   case 21: /* subneta: TOKSUBNET IPADDR IPADDR  */
 #line 100 "conf.y"
-    {  
-    struct in_addr addr, addr2;  
-    in_addr_t parsed_ip, parsed_mask;  
-      
-    // 解析 IP 地址  
-    parsed_ip = inet_network((yyvsp[-1].string));  
-    if (parsed_ip == (in_addr_t)-1) {  
-        fprintf(stderr, "无效的 IP 地址: %s 在第 %d 行\n", (yyvsp[-1].string), LineNo);  
-        syslog(LOG_ERR, "无效的 IP 地址: %s 在第 %d 行", (yyvsp[-1].string), LineNo);  
-        YYERROR;  
-    }  
-      
-    // 解析子网掩码  
-    parsed_mask = inet_network((yyvsp[0].string));  
-    if (parsed_mask == (in_addr_t)-1) {  
-        fprintf(stderr, "无效的子网掩码: %s 在第 %d 行\n", (yyvsp[0].string), LineNo);  
-        syslog(LOG_ERR, "无效的子网掩码: %s 在第 %d 行", (yyvsp[0].string), LineNo);  
-        YYERROR;  
-    }  
-      
-    SubnetTable[SubnetCount].ip = parsed_ip & parsed_mask;  
-    SubnetTable[SubnetCount].mask = parsed_mask;  
-  
-    addr.s_addr = htonl(SubnetTable[SubnetCount].ip);  
-    addr2.s_addr = htonl(SubnetTable[SubnetCount++].mask);  
-    syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", inet_ntoa(addr), inet_ntoa(addr2));  
+    {
+        struct in_addr ip_struct, mask_struct;
+        unsigned int parsed_ip, parsed_mask;
+        char ipbuf[INET_ADDRSTRLEN];
+        char maskbuf[INET_ADDRSTRLEN];
+
+        fprintf(stderr, "[DEBUG] subneta: 输入 IP=%s 掩码=%s (line %d)\n", (yyvsp[-1].string), (yyvsp[0].string), LineNo);
+
+        // 解析子网 IP
+        if (inet_pton(AF_INET, (yyvsp[-1].string), &ip_struct) != 1) {
+            fprintf(stderr, "无效的子网 IP 地址: %s\n", (yyvsp[-1].string));
+            syslog(LOG_ERR, "无效的子网 IP 地址: %s", (yyvsp[-1].string));
+            YYERROR;
+        }
+
+        // 解析子网掩码
+        if (inet_pton(AF_INET, (yyvsp[0].string), &mask_struct) != 1) {
+            fprintf(stderr, "无效的子网掩码: %s\n", (yyvsp[0].string));
+            syslog(LOG_ERR, "无效的子网掩码: %s", (yyvsp[0].string));
+            YYERROR;
+        }
+
+        // 转换为主机字节序
+        parsed_ip = ntohl(ip_struct.s_addr);
+        parsed_mask = ntohl(mask_struct.s_addr);
+
+        fprintf(stderr, "[DEBUG] 转换为主序: parsed_ip=0x%08X parsed_mask=0x%08X\n", parsed_ip, parsed_mask);
+
+        // 写入表（ip = network address）
+        SubnetTable[SubnetCount].ip = parsed_ip & parsed_mask;
+        SubnetTable[SubnetCount].mask = parsed_mask;
+
+        fprintf(stderr, "[DEBUG] 存入表项 #%u: ip=0x%08X mask=0x%08X\n",
+                SubnetCount,
+                SubnetTable[SubnetCount].ip,
+                SubnetTable[SubnetCount].mask);
+
+        // 使用 inet_ntop 将网络序值格式化到独立缓冲区，避免静态缓冲被覆盖
+        {
+            struct in_addr tmp;
+            tmp.s_addr = htonl(SubnetTable[SubnetCount].ip);
+            if (inet_ntop(AF_INET, &tmp, ipbuf, sizeof(ipbuf)) == NULL) {
+                strncpy(ipbuf, "UNKNOWN", sizeof(ipbuf)); ipbuf[sizeof(ipbuf)-1] = '\0';
+            }
+            tmp.s_addr = htonl(SubnetTable[SubnetCount].mask);
+            if (inet_ntop(AF_INET, &tmp, maskbuf, sizeof(maskbuf)) == NULL) {
+                strncpy(maskbuf, "UNKNOWN", sizeof(maskbuf)); maskbuf[sizeof(maskbuf)-1] = '\0';
+            }
+        }
+
+        // 调试输出完整字节（有助于定位结构体对齐/覆盖问题）
+        {
+            unsigned char *p = (unsigned char *)&SubnetTable[SubnetCount];
+            size_t i;
+            fprintf(stderr, "[DEBUG] SubnetTable[%u] bytes:", SubnetCount);
+            for (i = 0; i < sizeof(SubnetTable[SubnetCount]); i++) {
+                if (i % 16 == 0) fprintf(stderr, "\n  %04zu: ", i);
+                fprintf(stderr, "%02X ", p[i]);
+            }
+            fprintf(stderr, "\n");
+        }
+
+        // 使用独立缓冲区的字符串写入日志（安全）
+        syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", ipbuf, maskbuf);
+        fprintf(stderr, "[DEBUG] 日志/输出 => %s / %s\n", ipbuf, maskbuf);
+
+        // 完成后再自增
+        SubnetCount++;
     }
-#line 1201 "conf.tab.c"
+#line 1243 "conf.tab.c"
     break;
 
   case 22: /* subnetb: TOKSUBNET IPADDR TOKSLASH NUMBER  */
-#line 131 "conf.y"
-    {  
-    struct in_addr addr, addr2;  
-    in_addr_t parsed_ip;  
-    unsigned int Mask;  
-      
-    // 验证 CIDR 前缀长度  
-    if ((yyvsp[0].number) < 0 || (yyvsp[0].number) > 32) {  
-        fprintf(stderr, "无效的 CIDR 前缀长度 %d (必须在 0-32 之间) 在第 %d 行\n", (yyvsp[0].number), LineNo);  
-        syslog(LOG_ERR, "无效的 CIDR 前缀长度 %d 在第 %d 行", (yyvsp[0].number), LineNo);  
-        YYERROR;  
-    }  
-      
-    // 解析 IP 地址并检查错误  
-    parsed_ip = inet_network((yyvsp[-2].string));  
-    if (parsed_ip == (in_addr_t)-1) {  
-        fprintf(stderr, "无效的 IP 地址: %s 在第 %d 行\n", (yyvsp[-2].string), LineNo);  
-        syslog(LOG_ERR, "无效的 IP 地址: %s 在第 %d 行", (yyvsp[-2].string), LineNo);  
-        YYERROR;  
-    }  
-      
-    // 生成子网掩码  
-    Mask = ((yyvsp[0].number) == 0) ? 0 : (0xFFFFFFFF << (32 - (yyvsp[0].number)));  
-      
-    SubnetTable[SubnetCount].mask = Mask;  
-    SubnetTable[SubnetCount].ip = parsed_ip & Mask;  
-      
-    addr.s_addr = htonl(SubnetTable[SubnetCount].ip);  
-    addr2.s_addr = htonl(SubnetTable[SubnetCount++].mask);  
-    syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", inet_ntoa(addr), inet_ntoa(addr2));  
+#line 174 "conf.y"
+    {
+        struct in_addr ip_struct;
+        unsigned int parsed_ip, Mask;
+        char ipbuf[INET_ADDRSTRLEN];
+        char maskbuf[INET_ADDRSTRLEN];
+
+        fprintf(stderr, "[DEBUG] subnetb: 输入 %s/%d (line %d)\n", (yyvsp[-2].string), (yyvsp[0].number), LineNo);
+
+        // 检查 CIDR 前缀
+        if ((yyvsp[0].number) < 0 || (yyvsp[0].number) > 32) {
+            fprintf(stderr, "无效的 CIDR 前缀长度 %d (必须在 0-32 之间)\n", (yyvsp[0].number));
+            syslog(LOG_ERR, "无效的 CIDR 前缀长度 %d", (yyvsp[0].number));
+            YYERROR;
+        }
+
+        // 解析 IP 地址
+        if (inet_pton(AF_INET, (yyvsp[-2].string), &ip_struct) != 1) {
+            fprintf(stderr, "无效的 IP 地址: %s\n", (yyvsp[-2].string));
+            syslog(LOG_ERR, "无效的 IP 地址: %s", (yyvsp[-2].string));
+            YYERROR;
+        }
+
+        parsed_ip = ntohl(ip_struct.s_addr);
+        Mask = ((yyvsp[0].number) == 0) ? 0 : (0xFFFFFFFF << (32 - (yyvsp[0].number)));
+
+        fprintf(stderr, "[DEBUG] parsed_ip=0x%08X Mask=0x%08X\n", parsed_ip, Mask);
+
+        // 写入表（注意顺序：先写入再打印）
+        SubnetTable[SubnetCount].mask = Mask;
+        SubnetTable[SubnetCount].ip = parsed_ip & Mask;
+
+        fprintf(stderr, "[DEBUG] 存入表项 #%u: ip=0x%08X mask=0x%08X\n",
+                SubnetCount,
+                SubnetTable[SubnetCount].ip,
+                SubnetTable[SubnetCount].mask);
+
+        // 使用 inet_ntop 输出到独立缓冲区
+        {
+            struct in_addr tmp;
+            tmp.s_addr = htonl(SubnetTable[SubnetCount].ip);
+            if (inet_ntop(AF_INET, &tmp, ipbuf, sizeof(ipbuf)) == NULL) {
+                strncpy(ipbuf, "UNKNOWN", sizeof(ipbuf)); ipbuf[sizeof(ipbuf)-1] = '\0';
+            }
+            tmp.s_addr = htonl(SubnetTable[SubnetCount].mask);
+            if (inet_ntop(AF_INET, &tmp, maskbuf, sizeof(maskbuf)) == NULL) {
+                strncpy(maskbuf, "UNKNOWN", sizeof(maskbuf)); maskbuf[sizeof(maskbuf)-1] = '\0';
+            }
+        }
+
+        // 字节级调试（观察结构体内存）
+        {
+            unsigned char *p = (unsigned char *)&SubnetTable[SubnetCount];
+            size_t i;
+            fprintf(stderr, "[DEBUG] SubnetTable[%u] bytes:", SubnetCount);
+            for (i = 0; i < sizeof(SubnetTable[SubnetCount]); i++) {
+                if (i % 16 == 0) fprintf(stderr, "\n  %04zu: ", i);
+                fprintf(stderr, "%02X ", p[i]);
+            }
+            fprintf(stderr, "\n");
+        }
+
+        syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", ipbuf, maskbuf);
+        fprintf(stderr, "[DEBUG] 日志/输出 => %s / %s\n", ipbuf, maskbuf);
+
+        // 完成后再自增
+        SubnetCount++;
     }
-#line 1236 "conf.tab.c"
+#line 1315 "conf.tab.c"
     break;
 
   case 23: /* string: STRING  */
-#line 165 "conf.y"
+#line 244 "conf.y"
     {
     (yyvsp[0].string)[strlen((yyvsp[0].string))-1] = '\0';
     (yyval.string) = (yyvsp[0].string)+1;
     }
-#line 1245 "conf.tab.c"
+#line 1324 "conf.tab.c"
     break;
 
   case 24: /* device: TOKDEV string  */
-#line 173 "conf.y"
+#line 252 "conf.y"
         {
 	config.dev = (yyvsp[0].string);
 	}
-#line 1253 "conf.tab.c"
+#line 1332 "conf.tab.c"
     break;
 
   case 25: /* filter: TOKFILTER string  */
-#line 180 "conf.y"
+#line 259 "conf.y"
         {
 	config.filter = (yyvsp[0].string);
 	}
-#line 1261 "conf.tab.c"
+#line 1340 "conf.tab.c"
     break;
 
   case 26: /* meta_refresh: TOKMETAREFRESH NUMBER  */
-#line 187 "conf.y"
+#line 266 "conf.y"
         {
 	config.meta_refresh = (yyvsp[0].number);
 	}
-#line 1269 "conf.tab.c"
+#line 1348 "conf.tab.c"
     break;
 
   case 27: /* skip_intervals: TOKSKIPINTERVALS NUMBER  */
-#line 194 "conf.y"
+#line 273 "conf.y"
         {
 	config.skip_intervals = (yyvsp[0].number)+1;
 	}
-#line 1277 "conf.tab.c"
+#line 1356 "conf.tab.c"
     break;
 
   case 28: /* graph_cutoff: TOKGRAPHCUTOFF NUMBER  */
-#line 201 "conf.y"
+#line 280 "conf.y"
         {
 	config.graph_cutoff = (yyvsp[0].number)*1024;
 	}
-#line 1285 "conf.tab.c"
+#line 1364 "conf.tab.c"
     break;
 
   case 29: /* promisc: TOKPROMISC STATE  */
-#line 208 "conf.y"
+#line 287 "conf.y"
         {
 	config.promisc = (yyvsp[0].number);
 	}
-#line 1293 "conf.tab.c"
+#line 1372 "conf.tab.c"
     break;
 
   case 30: /* output_cdf: TOKOUTPUTCDF STATE  */
-#line 215 "conf.y"
+#line 294 "conf.y"
         {
 	config.output_cdf = (yyvsp[0].number);
 	}
-#line 1301 "conf.tab.c"
+#line 1380 "conf.tab.c"
     break;
 
   case 31: /* recover_cdf: TOKRECOVERCDF STATE  */
-#line 222 "conf.y"
+#line 301 "conf.y"
         {
 	config.recover_cdf = (yyvsp[0].number);
 	}
-#line 1309 "conf.tab.c"
+#line 1388 "conf.tab.c"
     break;
 
   case 32: /* graph: TOKGRAPH STATE  */
-#line 229 "conf.y"
+#line 308 "conf.y"
         {
 	config.graph = (yyvsp[0].number);
 	}
-#line 1317 "conf.tab.c"
+#line 1396 "conf.tab.c"
     break;
 
   case 33: /* pgsql_connect_string: TOKPGSQLCONNECTSTRING string  */
-#line 236 "conf.y"
+#line 315 "conf.y"
     {
     config.db_connect_string = (yyvsp[0].string);
 	config.output_database = DB_PGSQL;
     }
-#line 1326 "conf.tab.c"
+#line 1405 "conf.tab.c"
     break;
 
   case 34: /* sqlite_filename: TOKSQLITEFILENAME string  */
-#line 244 "conf.y"
+#line 323 "conf.y"
     {
     config.db_connect_string = (yyvsp[0].string);
     config.output_database = DB_SQLITE;
     }
-#line 1335 "conf.tab.c"
+#line 1414 "conf.tab.c"
     break;
 
   case 35: /* sensor_id: TOKSENSORID string  */
-#line 252 "conf.y"
+#line 331 "conf.y"
     {
     config.sensor_id = (yyvsp[0].string);
     }
-#line 1343 "conf.tab.c"
+#line 1422 "conf.tab.c"
     break;
 
 
-#line 1347 "conf.tab.c"
+#line 1426 "conf.tab.c"
 
       default: break;
     }
