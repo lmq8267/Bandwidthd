@@ -8,6 +8,7 @@
 #include <libpq-fe.h>
 #endif
 #include <sys/statvfs.h>
+#include <libgen.h>
 
 // We must call regular exit to write out profile data, but child forks are supposed to usually
 // call _exit?
@@ -588,16 +589,21 @@ int main(int argc, char **argv)
 	config.sensor_id = "unset";  
 
 	openlog("【BandWidthd】", LOG_CONS, LOG_DAEMON);
-	char resolved_path[1024];
-    	char resolved_copy[1024];
-    	char *INSTALL_DIR = NULL;
-    	if (realpath(argv[0], resolved_path)) {
-        	strncpy(resolved_copy, resolved_path, sizeof(resolved_copy));
-        	resolved_copy[sizeof(resolved_copy) - 1] = '\0';
-        	INSTALL_DIR = strdup(dirname(resolved_copy));  
-    	} else {
-        	INSTALL_DIR = strdup(DEFAULT_CONFIG_DIR);
-    	}
+	char resolved_path[1024];  
+	char resolved_copy[1024];  
+	char *INSTALL_DIR = NULL;  
+	if (realpath(argv[0], resolved_path)) {  
+    	strncpy(resolved_copy, resolved_path, sizeof(resolved_copy));  
+    	resolved_copy[sizeof(resolved_copy) - 1] = '\0';  
+    	char *dir_result = dirname(resolved_copy);  
+    	if (dir_result != NULL) {  
+        	INSTALL_DIR = strdup(dir_result);  
+    	} else {  
+        	INSTALL_DIR = strdup(DEFAULT_CONFIG_DIR);  
+    	}  
+	} else {  
+    	INSTALL_DIR = strdup(DEFAULT_CONFIG_DIR);  
+	}
 
 	int ListenPort = 8080;  
 	// 先解析命令行参数  
@@ -872,7 +878,7 @@ int main(int argc, char **argv)
 		}	
 
     IntervalStart = time(NULL);
-	// syslog(LOG_INFO, "正在检测 %s 接口", config.dev);	
+	syslog(LOG_INFO, "正在监测 %s 接口", config.dev);	
 	pd = pcap_open_live(config.dev, 100, config.promisc, 1000, Error);
         if (pd == NULL) 
 			{
@@ -1505,7 +1511,7 @@ void StoreIPDataInPostgresql(struct IPData IncData[])
 		}							
 	PQclear(res);
 #else
-	syslog(LOG_ERR, "选择了Postgresql日志记录，但Postgresql支持未编译到二进制文件中。请查看随本软件分发的README文档。");
+	syslog(LOG_ERR, "您选择了Postgresql日志记录，但遗憾的是Postgresql支持未编译到二进制文件中。");
 #endif
 	}
 
