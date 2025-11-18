@@ -118,25 +118,25 @@ void signal_handler(int sig)
     		unlink("/var/run/bandwidthd.pid");  
       
     		// 根据 config.tag 输出不同的退出信息
-			char tag_desc[64];  
+			const char *tag_desc;  
 
-			switch (config.tag) {
-    			case 1:
-        			snprintf(tag_desc, sizeof(tag_desc), "每日流量统计主进程");
-        			break;
-    			case 2:
-        			snprintf(tag_desc, sizeof(tag_desc), "每周流量统计子进程");
-        			break;
-    			case 3:
-        			snprintf(tag_desc, sizeof(tag_desc), "每月流量统计子进程");
-        			break;
-    			case 4:
-        			snprintf(tag_desc, sizeof(tag_desc), "每年流量统计子进程");
-        			break;
-    			default:
-        			snprintf(tag_desc, sizeof(tag_desc), "服务(tag=%d)", config.tag);
-        			break;
-			}
+			switch (config.tag) {  
+        		case '1':  
+            		tag_desc = "每日流量统计主进程";  
+            		break;  
+        		case '2':  
+            		tag_desc = "每周流量统计子进程";  
+            		break;  
+        		case '3':  
+            		tag_desc = "每月流量统计子进程";  
+            		break;  
+        		case '4':  
+            		tag_desc = "每年流量统计子进程";  
+            		break;  
+        		default:  
+            		tag_desc = "流量统计子进程";  
+            		break;  
+    		} 
 
 			// 输出更具可读性的日志
 			syslog(LOG_INFO, "%s 正常退出", tag_desc);
@@ -569,6 +569,8 @@ int main(int argc, char **argv)
 	int ForkBackground = TRUE;
 	int ListDevices = FALSE;
 	int Counter;
+	char *config_file = NULL;  // 用于存储命令行指定的配置文件  
+	char *used_config_file = NULL;  // 实际使用的配置文件路径
 	
 	ProgramStart = time(NULL);
 
@@ -597,33 +599,144 @@ int main(int argc, char **argv)
         	INSTALL_DIR = strdup(DEFAULT_CONFIG_DIR);
     	}
 
-	if (stat("/etc/storage/bandwidthd.conf", &StatBuf))
-		{
-    		
-		char config_path[1024];
-		snprintf(config_path, sizeof(config_path), "%s/bandwidthd.conf", INSTALL_DIR);
-		if (stat(config_path, &StatBuf))
-			{
-			printf("无法找到 /etc/storage/bandwidthd.conf 或 %s/bandwidthd.conf\n", INSTALL_DIR);
-			syslog(LOG_ERR, "无法找到 /etc/storage/bandwidthd.conf 或 %s/bandwidthd.conf", INSTALL_DIR);
-			exit(1);
-			}
-		else
-		        {
-		        bdconfig_in = fopen(config_path, "rt");
-                        }
-		}
-	else
-	        {
-			bdconfig_in = fopen("/etc/storage/bandwidthd.conf", "rt");
-		}
-
-	if (!bdconfig_in)
-		{
-		syslog(LOG_ERR, "无法打开 bandwidthd.conf");
-		printf("无法打开 bandwidthd.conf\n");
-		exit(1);
-		}
+	int ListenPort = 8080;  
+	// 先解析命令行参数  
+	for(Counter = 1; Counter < argc; Counter++)  
+	{  
+		if (argv[Counter][0] == '-')  
+		{  
+			switch(argv[Counter][1])  
+			{  
+				case 'D':  
+				case 'd':  
+					ForkBackground = FALSE;  
+					break;  
+				case 'L':  
+				case 'l':  
+					ListDevices = TRUE;   
+			 		break;  
+			 	case 'P':  
+				case 'p':  
+					if (Counter + 1 < argc)   
+					{  
+						ListenPort = atoi(argv[++Counter]);   
+						if (ListenPort <= 0 || ListenPort > 65535)  
+						{  
+							printf("无效的端口号: %s\n", argv[Counter]);  
+							exit(1);  
+						}  
+					}  
+					else  
+					{  
+						printf("缺少 -P 参数后的端口号\n");  
+						exit(1);  
+					}  
+					break;  
+				case 'C':  
+				case 'c':  
+					if (Counter + 1 < argc)   
+					{  
+						config_file = argv[++Counter];  
+					}  
+					else  
+					{  
+						printf("缺少 -c 参数后的配置文件路径\n");  
+						exit(1);  
+					}  
+					break;  
+				case 'H':  
+				case 'h':  
+					printf("用法: bandwidthd [选项]\n");  
+					printf("选项:\n");  
+					printf("  -d        前台运行（不后台化）\n");  
+					printf("  -l        列出可用的网络接口\n");  
+					printf("  -p PORT   指定HTTP服务端口（默认: 8080）\n");  
+					printf("  -c FILE   指定配置文件路径\n");  
+					printf("  -h        显示此帮助信息\n");  
+					printf("\n");  
+					printf("配置文件读取优先级:\n");  
+					printf("  1. 命令行参数 -c 指定的文件\n");  
+					printf("  2. 程序所在目录的 bandwidthd.conf\n");  
+					printf("  3. /etc/storage/bandwidthd.conf\n");  
+					printf("\n");  
+    				printf("版本特性:\n");  
+					#ifdef HAVE_LIBPQ  
+    					printf("  ✓ PostgreSQL 数据库支持已启用\n");  
+					#else  
+    					printf("  ✗ PostgreSQL 数据库支持未启用\n");  
+					#endif  
+    				exit(0);  
+					break;  
+				default:  
+					printf("不正确的参数: %s\n", argv[Counter]);  
+					printf("使用 -h 查看帮助信息\n");  
+					exit(1);  
+			}  
+		}  
+	}
+		
+	// 按优先级读取配置文件  
+	if (config_file != NULL)  
+	{  
+		// 优先级1: 命令行指定的配置文件  
+		if (stat(config_file, &StatBuf))  
+		{  
+			printf("无法找到指定的配置文件: %s\n", config_file);  
+			syslog(LOG_ERR, "无法找到指定的配置文件: %s", config_file);  
+			exit(1);  
+		}  
+		bdconfig_in = fopen(config_file, "rt");  
+		if (!bdconfig_in)  
+		{  
+			printf("无法打开指定的配置文件: %s\n", config_file);  
+			syslog(LOG_ERR, "无法打开指定的配置文件: %s", config_file);  
+			exit(1);  
+		}  
+		used_config_file = config_file;  
+	}  
+	else  
+	{  
+		// 优先级2: 程序目录的配置文件  
+		char config_path[1024];  
+		snprintf(config_path, sizeof(config_path), "%s/bandwidthd.conf", INSTALL_DIR);  
+		if (!stat(config_path, &StatBuf))  
+		{  
+			bdconfig_in = fopen(config_path, "rt");  
+			if (bdconfig_in)  
+				{  
+				used_config_file = strdup(config_path);  
+				}  
+			}  
+		  
+		// 优先级3: /etc/storage/bandwidthd.conf  
+		if (!bdconfig_in)  
+		{  
+			if (!stat("/etc/storage/bandwidthd.conf", &StatBuf))  
+			{  
+				bdconfig_in = fopen("/etc/storage/bandwidthd.conf", "rt");  
+				if (bdconfig_in)  
+				{  
+					used_config_file = strdup("/etc/storage/bandwidthd.conf");  
+				}  
+			}  
+		}  
+		  
+		// 如果都找不到  
+		if (!bdconfig_in)  
+		{  
+			printf("无法找到配置文件。已尝试:\n");  
+			printf("  1. %s/bandwidthd.conf\n", INSTALL_DIR);  
+			printf("  2. /etc/storage/bandwidthd.conf\n");  
+			printf("请使用 -c 参数指定配置文件路径，或将配置文件放置在上述位置之一。\n");  
+			syslog(LOG_ERR, "无法找到配置文件");  
+			exit(1);  
+		}  
+	}  
+  
+	// 输出使用的配置文件  
+	printf("使用配置文件: %s\n", used_config_file);  
+	syslog(LOG_INFO, "使用配置文件: %s", used_config_file);
+		
 	bdconfig_parse();
 	/*
 	// Scary
@@ -641,44 +754,6 @@ int main(int argc, char **argv)
 		(unsigned long) (0-1), (unsigned long long) (0-1));
 		exit(1);
 	*/
- 	int ListenPort = 8080;
-	for(Counter = 1; Counter < argc; Counter++)
-		{
-		if (argv[Counter][0] == '-')
-			{
-			switch(argv[Counter][1])
-				{
-				case 'D':
-				case 'd':
-					ForkBackground = FALSE;
-					break;
-				case 'L':
-				case 'l':
-					ListDevices = TRUE; 
-			 		break;
-			 	case 'P':
-				case 'p':
-					if (Counter + 1 < argc) 
-					{
-						ListenPort = atoi(argv[++Counter]); 
-						if (ListenPort <= 0 || ListenPort > 65535)
-						{
-							printf("无效的端口号: %s\n", argv[Counter]);
-							exit(1);
-						}
-					}
-					else
-					{
-						printf("缺少 -P 参数后的端口号\n");
-						exit(1);
-					}
-					break;
-				default:
-					printf("不正确的参数: %s\n", argv[Counter]);
-					exit(1);
-				}
-			}
-		}
 
 #ifdef HAVE_PCAP_FINDALLDEVS
 	pcap_findalldevs(&Devices, Error);
