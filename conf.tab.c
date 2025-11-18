@@ -1236,8 +1236,6 @@ yyreduce:
         char ipbuf[INET_ADDRSTRLEN];
         char maskbuf[INET_ADDRSTRLEN];
 
-        fprintf(stderr, "[DEBUG] subnetb: 输入 %s/%d (line %d)\n", (yyvsp[-2].string), (yyvsp[0].number), LineNo);
-
         // 检查 CIDR 前缀
         if ((yyvsp[0].number) < 0 || (yyvsp[0].number) > 32) {
             syslog(LOG_ERR, "无效的 CIDR 前缀长度 %d (必须在 0-32 之间)", (yyvsp[0].number));
