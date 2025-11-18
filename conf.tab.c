@@ -1176,18 +1176,14 @@ yyreduce:
         char ipbuf[INET_ADDRSTRLEN];
         char maskbuf[INET_ADDRSTRLEN];
 
-        fprintf(stderr, "[DEBUG] subneta: 输入 IP=%s 掩码=%s (line %d)\n", (yyvsp[-1].string), (yyvsp[0].string), LineNo);
-
         // 解析子网 IP
         if (inet_pton(AF_INET, (yyvsp[-1].string), &ip_struct) != 1) {
-            fprintf(stderr, "无效的子网 IP 地址: %s\n", (yyvsp[-1].string));
             syslog(LOG_ERR, "无效的子网 IP 地址: %s", (yyvsp[-1].string));
             YYERROR;
         }
 
         // 解析子网掩码
         if (inet_pton(AF_INET, (yyvsp[0].string), &mask_struct) != 1) {
-            fprintf(stderr, "无效的子网掩码: %s\n", (yyvsp[0].string));
             syslog(LOG_ERR, "无效的子网掩码: %s", (yyvsp[0].string));
             YYERROR;
         }
@@ -1196,16 +1192,9 @@ yyreduce:
         parsed_ip = ntohl(ip_struct.s_addr);
         parsed_mask = ntohl(mask_struct.s_addr);
 
-        fprintf(stderr, "[DEBUG] 转换为主序: parsed_ip=0x%08X parsed_mask=0x%08X\n", parsed_ip, parsed_mask);
-
         // 写入表（ip = network address）
         SubnetTable[SubnetCount].ip = parsed_ip & parsed_mask;
         SubnetTable[SubnetCount].mask = parsed_mask;
-
-        fprintf(stderr, "[DEBUG] 存入表项 #%u: ip=0x%08X mask=0x%08X\n",
-                SubnetCount,
-                SubnetTable[SubnetCount].ip,
-                SubnetTable[SubnetCount].mask);
 
         // 使用 inet_ntop 将网络序值格式化到独立缓冲区，避免静态缓冲被覆盖
         {
@@ -1224,17 +1213,14 @@ yyreduce:
         {
             unsigned char *p = (unsigned char *)&SubnetTable[SubnetCount];
             size_t i;
-            fprintf(stderr, "[DEBUG] SubnetTable[%u] bytes:", SubnetCount);
             for (i = 0; i < sizeof(SubnetTable[SubnetCount]); i++) {
                 if (i % 16 == 0) fprintf(stderr, "\n  %04zu: ", i);
                 fprintf(stderr, "%02X ", p[i]);
             }
-            fprintf(stderr, "\n");
         }
 
         // 使用独立缓冲区的字符串写入日志（安全）
         syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", ipbuf, maskbuf);
-        fprintf(stderr, "[DEBUG] 日志/输出 => %s / %s\n", ipbuf, maskbuf);
 
         // 完成后再自增
         SubnetCount++;
@@ -1254,14 +1240,12 @@ yyreduce:
 
         // 检查 CIDR 前缀
         if ((yyvsp[0].number) < 0 || (yyvsp[0].number) > 32) {
-            fprintf(stderr, "无效的 CIDR 前缀长度 %d (必须在 0-32 之间)\n", (yyvsp[0].number));
-            syslog(LOG_ERR, "无效的 CIDR 前缀长度 %d", (yyvsp[0].number));
+            syslog(LOG_ERR, "无效的 CIDR 前缀长度 %d (必须在 0-32 之间)", (yyvsp[0].number));
             YYERROR;
         }
 
         // 解析 IP 地址
         if (inet_pton(AF_INET, (yyvsp[-2].string), &ip_struct) != 1) {
-            fprintf(stderr, "无效的 IP 地址: %s\n", (yyvsp[-2].string));
             syslog(LOG_ERR, "无效的 IP 地址: %s", (yyvsp[-2].string));
             YYERROR;
         }
@@ -1269,16 +1253,10 @@ yyreduce:
         parsed_ip = ntohl(ip_struct.s_addr);
         Mask = ((yyvsp[0].number) == 0) ? 0 : (0xFFFFFFFF << (32 - (yyvsp[0].number)));
 
-        fprintf(stderr, "[DEBUG] parsed_ip=0x%08X Mask=0x%08X\n", parsed_ip, Mask);
 
         // 写入表（注意顺序：先写入再打印）
         SubnetTable[SubnetCount].mask = Mask;
         SubnetTable[SubnetCount].ip = parsed_ip & Mask;
-
-        fprintf(stderr, "[DEBUG] 存入表项 #%u: ip=0x%08X mask=0x%08X\n",
-                SubnetCount,
-                SubnetTable[SubnetCount].ip,
-                SubnetTable[SubnetCount].mask);
 
         // 使用 inet_ntop 输出到独立缓冲区
         {
@@ -1297,16 +1275,13 @@ yyreduce:
         {
             unsigned char *p = (unsigned char *)&SubnetTable[SubnetCount];
             size_t i;
-            fprintf(stderr, "[DEBUG] SubnetTable[%u] bytes:", SubnetCount);
             for (i = 0; i < sizeof(SubnetTable[SubnetCount]); i++) {
                 if (i % 16 == 0) fprintf(stderr, "\n  %04zu: ", i);
                 fprintf(stderr, "%02X ", p[i]);
             }
-            fprintf(stderr, "\n");
         }
 
         syslog(LOG_INFO, "监控子网 %s 子网掩码 %s", ipbuf, maskbuf);
-        fprintf(stderr, "[DEBUG] 日志/输出 => %s / %s\n", ipbuf, maskbuf);
 
         // 完成后再自增
         SubnetCount++;
