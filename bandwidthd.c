@@ -595,7 +595,14 @@ int main(int argc, char **argv)
 	config.db_connect_string = NULL;
 	config.sensor_id = "unset";  
 
-	openlog("【BandWidthd】", LOG_CONS, LOG_DAEMON);
+	char prog_name_copy[256];  
+	strncpy(prog_name_copy, argv[0], sizeof(prog_name_copy) - 1);  
+	prog_name_copy[sizeof(prog_name_copy) - 1] = '\0';  
+  
+	char log_ident[280];  
+	snprintf(log_ident, sizeof(log_ident), "【%s】", basename(prog_name_copy));  
+	openlog(log_ident, LOG_CONS, LOG_DAEMON);
+		
 	char resolved_path[1024];  
 	char resolved_copy[1024];  
 	char *INSTALL_DIR = NULL;  
