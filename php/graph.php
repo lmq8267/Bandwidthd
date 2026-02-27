@@ -687,7 +687,7 @@ while ($YTic <= ($YMax - $YMax/10))
 	{
     $y = ($height-YOFFSET)-(($YTic*($height-YOFFSET))/$YMax);
 	ImageLine($im, XOFFSET, $y, $width, $y, $black);
-    $txtYLegend = sprintf("%4.1f%s", (8.0*$YTic)/$Divisor, $YLegend);
+    $txtYLegend = sprintf("%4.1f%s/秒", (8.0*$YTic)/$Divisor, $YLegend);
     imagettftext($im, FONT_SIZE, 0, 3, $y-7+FONT_SIZE, $black, FONT_PATH, $txtYLegend);
 	$YTic += $YStep;
 	}
